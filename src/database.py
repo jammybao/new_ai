@@ -3,42 +3,69 @@ import pymysql
 import pandas as pd
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
+from datetime import datetime
 
 class DatabaseConnector:
     """数据库连接器，用于连接数据库并执行查询"""
     
-    def __init__(self, config_path="../config/config.env"):
-        # 加载配置文件
-        if os.path.exists(config_path):
-            load_dotenv(config_path)
+    def __init__(self, config_file=None):
+        """初始化数据库连接"""
+        # 加载配置
+        if config_file:
+            load_dotenv(config_file)
         
-        # 数据库配置
-        self.config = {
-            'DB_HOST': os.getenv('DB_HOST'),
-            'DB_PORT': os.getenv('DB_PORT', '3306'),
-            'DB_USER': os.getenv('DB_USER'),
-            'DB_PASSWORD': os.getenv('DB_PASSWORD'),
-            'DB_NAME': os.getenv('DB_NAME')
-        }
+        # 设置数据库连接参数
+        self.host = os.getenv("DB_HOST")
+        self.port = int(os.getenv("DB_PORT", "3306"))
+        self.user = os.getenv("DB_USER")
+        self.password = os.getenv("DB_PASSWORD")
+        self.db_name = os.getenv("DB_NAME")
+        
+        # 设置表名
+        self.alerts_table = "ids_ai"
+        self.baseline_table = "baseline_alerts"
+        self.zero_day_table = "zero_day_alerts"
         
         # 检查配置
-        for key, value in self.config.items():
+        for key, value in {'DB_HOST': self.host, 'DB_PORT': self.port, 'DB_USER': self.user, 'DB_PASSWORD': self.password, 'DB_NAME': self.db_name}.items():
             if value is None:
                 print(f"警告: 配置项 {key} 没有设置")
         
-        self._connection = None
-        self._engine = None
+        # 连接数据库
+        try:
+            self.conn = pymysql.connect(
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password,
+                database=self.db_name,
+                charset='utf8mb4',
+                use_unicode=True
+            )
+            
+            # 创建SQLAlchemy引擎
+            connection_string = (
+                f"mysql+pymysql://{self.user}:{self.password}@"
+                f"{self.host}:{self.port}/{self.db_name}?charset=utf8mb4"
+            )
+            self.engine = create_engine(connection_string)
+            
+            print(f"成功连接到数据库 {self.db_name}")
+        except Exception as e:
+            print(f"连接数据库失败: {e}")
+            self.conn = None
+            self.engine = None
     
     def get_connection(self):
         """获取数据库连接"""
         try:
             if not hasattr(self, '_connection') or self._connection is None:
                 self._connection = pymysql.connect(
-                    host=self.config.get('DB_HOST'),
-                    port=int(self.config.get('DB_PORT', 3306)),
-                    user=self.config.get('DB_USER'),
-                    password=self.config.get('DB_PASSWORD'),
-                    database=self.config.get('DB_NAME'),
+                    host=self.host,
+                    port=self.port,
+                    user=self.user,
+                    password=self.password,
+                    database=self.db_name,
                     charset='utf8mb4',  # 使用utf8mb4字符集支持中文和表情符号
                     use_unicode=True,   # 启用Unicode支持
                     connect_timeout=5
@@ -53,9 +80,8 @@ class DatabaseConnector:
         try:
             if not hasattr(self, '_engine') or self._engine is None:
                 connection_string = (
-                    f"mysql+pymysql://{self.config.get('DB_USER')}:{self.config.get('DB_PASSWORD')}@"
-                    f"{self.config.get('DB_HOST')}:{self.config.get('DB_PORT', 3306)}/"
-                    f"{self.config.get('DB_NAME')}?charset=utf8mb4"
+                    f"mysql+pymysql://{self.user}:{self.password}@"
+                    f"{self.host}:{self.port}/{self.db_name}?charset=utf8mb4"
                 )
                 self._engine = create_engine(connection_string)
             return self._engine
@@ -106,79 +132,59 @@ class DatabaseConnector:
             print(f"获取基线告警数据失败: {e}")
             return None
     
-    def get_alerts(self, days=None, include_baseline=True):
+    def get_alerts(self, limit=None, offset=0):
+        """获取告警数据"""
+        try:
+            query = f"SELECT * FROM {self.alerts_table}"
+            if limit:
+                query += f" LIMIT {limit} OFFSET {offset}"
+            df = pd.read_sql(query, self.conn)
+            return df
+        except Exception as e:
+            print(f"Error getting alerts: {e}")
+            return pd.DataFrame()
+
+    def get_alerts_by_timerange(self, start_time, end_time):
         """
-        获取告警数据
+        根据时间范围获取告警数据
         
         参数:
-            days: 如果指定，则获取最近days天的告警；否则获取所有告警
-            include_baseline: 是否包含基线数据
+        - start_time: 开始时间（datetime对象）
+        - end_time: 结束时间（datetime对象）
+        
         返回:
-            pandas DataFrame 或 None (如果查询失败)
+        - 包含指定时间范围内告警的DataFrame
         """
         try:
-            # 获取原始告警数据
-            query = "SELECT * FROM ids_ai"
+            # 将datetime对象转换为字符串格式
+            start_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+            end_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
             
-            if days is not None:
-                query += f" WHERE created_at >= DATE_SUB(NOW(), INTERVAL {days} DAY)"
-                print(f"获取最近{days}天的告警数据...")
+            # 构建SQL查询
+            query = f"""
+            SELECT * FROM {self.alerts_table} 
+            WHERE event_time BETWEEN '{start_str}' AND '{end_str}'
+            ORDER BY event_time DESC
+            """
             
-            query += " LIMIT 5000"  # 限制返回记录数，避免内存溢出
+            # 调试信息
+            print(f"执行查询: {query}")
             
-            df = self.query_to_dataframe(query)
+            # 使用get_connection()获取连接
+            conn = self.get_connection()
+            if conn is None:
+                print("数据库连接失败")
+                return pd.DataFrame()
             
-            # 如果需要包含基线数据
-            if include_baseline:
-                try:
-                    baseline_df = self.get_baseline_alerts()
-                    if baseline_df is not None and not baseline_df.empty:
-                        print(f"合并 {len(baseline_df)} 条基线数据到训练集...")
-                        # 合并基线数据和原始数据
-                        df = pd.concat([df, baseline_df], ignore_index=True)
-                        print(f"合并后的数据集包含 {len(df)} 条记录")
-                except Exception as e:
-                    print(f"获取或合并基线数据失败: {e}")
-            
-            if df is not None and not df.empty:
-                # 确保时间字段为datetime类型
-                date_columns = ['event_time', 'created_at']
-                for col in date_columns:
-                    if col in df.columns:
-                        df[col] = pd.to_datetime(df[col], errors='coerce')
-                
-                print(f"成功获取 {len(df)} 条告警数据")
-                
-                # 打印数据概览
-                if len(df) > 0:
-                    print("数据概览:")
-                    
-                    # 分类字段统计
-                    for col in ['category', 'event_type', 'signature']:
-                        if col in df.columns:
-                            print(f"- {col}: {df[col].nunique()} 种")
-                    
-                    # IP地址统计
-                    for col in ['src_ip', 'dst_ip']:
-                        if col in df.columns:
-                            print(f"- {col}: {df[col].nunique()} 个")
-                    
-                    # 时间范围
-                    for col in ['event_time', 'created_at']:
-                        if col in df.columns and pd.api.types.is_datetime64_any_dtype(df[col]):
-                            min_time = df[col].min()
-                            max_time = df[col].max()
-                            print(f"- 时间范围 ({col}): {min_time} 至 {max_time}")
-                    
-                    # 表结构
-                    print("\n表结构:")
-                    print(f"- 列名: {df.columns.tolist()}")
-            
+            # 执行查询
+            df = pd.read_sql(query, conn)
+            print(f"查询结果: {len(df)} 条记录")
             return df
-        
         except Exception as e:
-            print(f"获取告警数据失败: {e}")
-            return None
+            print(f"获取时间范围告警数据出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
     
     def get_internal_ips(self):
         """获取内部IP地址列表"""
@@ -263,33 +269,231 @@ class DatabaseConnector:
                     
                     # 逐行插入数据
                     inserted_rows = 0
+                    skipped_rows = 0
                     for _, row in save_df.iterrows():
                         # 构建INSERT语句
                         placeholders = ", ".join(["%s"] * len(row))
                         columns = ", ".join([f"`{col}`" for col in save_df.columns])
-                        insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
+                        
+                        # 使用INSERT IGNORE来忽略重复键错误
+                        insert_sql = f"INSERT IGNORE INTO `{table_name}` ({columns}) VALUES ({placeholders})"
                         
                         try:
                             cursor.execute(insert_sql, tuple(row))
-                            inserted_rows += 1
+                            if cursor.rowcount > 0:
+                                inserted_rows += 1
+                            else:
+                                skipped_rows += 1
                         except Exception as e:
                             print(f"插入行时出错: {e}")
                             print(f"有问题的行数据: {row}")
+                            skipped_rows += 1
                             # 跳过错误行，继续处理其他行
                             continue
                     
                     conn.commit()
-                    print(f"成功插入 {inserted_rows} 行到表 '{table_name}'")
+                    print(f"成功插入 {inserted_rows} 行到表 '{table_name}'，跳过 {skipped_rows} 行重复数据")
                     return inserted_rows > 0
                 else:
                     # 使用pandas的to_sql方法
-                    save_df.to_sql(table_name, engine, if_exists=if_exists, index=False)
-                    print(f"成功保存 {len(save_df)} 行到表 '{table_name}'")
-                    return True
+                    try:
+                        # 首先尝试使用replace_method参数忽略重复键
+                        from sqlalchemy.dialects.mysql import insert
+                        from sqlalchemy import Table, MetaData
+                        
+                        # 获取表结构
+                        metadata = MetaData()
+                        table = Table(table_name, metadata, autoload_with=engine)
+                        
+                        # 使用insert...on duplicate key update语法
+                        inserted_rows = 0
+                        for _, row in save_df.iterrows():
+                            try:
+                                # 构建插入语句
+                                stmt = insert(table).values(**row.to_dict())
+                                # 对于重复键，不更新任何字段
+                                do_nothing_stmt = stmt.on_duplicate_key_update()
+                                
+                                # 执行
+                                with engine.connect() as conn:
+                                    result = conn.execute(do_nothing_stmt)
+                                    if result.rowcount > 0:
+                                        inserted_rows += 1
+                            except Exception as e:
+                                print(f"插入行时出错: {e}")
+                                continue
+                        
+                        print(f"成功保存 {inserted_rows} 行到表 '{table_name}'")
+                        return True
+                    except Exception as e:
+                        print(f"尝试使用高级插入方法失败: {e}")
+                        print("回退到标准to_sql方法，重复键可能会导致错误")
+                        
+                        # 回退到标准方法
+                        save_df.to_sql(table_name, engine, if_exists=if_exists, index=False)
+                        print(f"成功保存 {len(save_df)} 行到表 '{table_name}'")
+                        return True
             return False
         except Exception as e:
             print(f"保存结果失败: {e}")
             print(f"错误类型: {type(e).__name__}")
             import traceback
             traceback.print_exc()
+            return False
+    
+    def save_zero_day_alerts(self, zero_day_df):
+        """
+        保存疑似零日攻击记录到数据库
+        
+        参数:
+        - zero_day_df: 包含零日攻击信息的DataFrame
+        
+        返回:
+        - 成功插入的记录数
+        """
+        if zero_day_df is None or zero_day_df.empty:
+            print("没有零日攻击记录需要保存")
+            return 0
+        
+        try:
+            # 需要保存到数据库的字段
+            db_fields = [
+                'id', 'event_time', 'event_type', 'device_name', 'device_ip', 
+                'threat_level', 'category', 'attack_function', 'attack_step', 'signature',
+                'src_ip', 'src_port', 'src_mac', 'dst_ip', 'dst_port', 'dst_mac',
+                'protocol', 'packets_to_server', 'packets_to_client', 
+                'bytes_to_server', 'bytes_to_client', 'created_at'
+            ]
+            
+            # 检查是否所有需要的字段都存在
+            available_fields = [field for field in db_fields if field in zero_day_df.columns]
+            print(f"将保存以下字段: {available_fields}")
+            
+            # 准备要插入的数据
+            data_to_insert = zero_day_df[available_fields].copy()
+            
+            # 检查表是否存在，如果不存在则创建
+            table_exists = self.check_table_exists('zero_day_alerts')
+            
+            if not table_exists:
+                print("表 'zero_day_alerts' 不存在，尝试创建...")
+                self.create_zero_day_alerts_table()
+            
+            # 处理包含中文字符的字段
+            has_chinese = False
+            for col in data_to_insert.columns:
+                if data_to_insert[col].dtype == 'object':
+                    # 检查是否包含中文字符
+                    if any(data_to_insert[col].astype(str).str.contains('[\\u4e00-\\u9fff]', regex=True)):
+                        print(f"列 '{col}' 包含中文字符")
+                        has_chinese = True
+            
+            # 如果有中文字符，使用直接SQL插入
+            inserted_count = 0
+            skipped_count = 0
+            
+            if has_chinese:
+                print("检测到中文字符，使用直接SQL插入方式...")
+                
+                # 获取所有已存在的ID
+                existing_ids_query = "SELECT id FROM zero_day_alerts"
+                existing_ids_df = pd.read_sql(existing_ids_query, self.conn)
+                existing_ids = set(existing_ids_df['id'].values) if not existing_ids_df.empty else set()
+                
+                # 逐行插入数据
+                for _, row in data_to_insert.iterrows():
+                    # 跳过已存在的ID
+                    if row['id'] in existing_ids:
+                        skipped_count += 1
+                        continue
+                    
+                    # 构建INSERT语句
+                    fields = ", ".join(available_fields)
+                    placeholders = ", ".join(["%s"] * len(available_fields))
+                    
+                    insert_query = f"""
+                    INSERT INTO zero_day_alerts ({fields}, detected_at, zero_day_score)
+                    VALUES ({placeholders}, NOW(), %s)
+                    """
+                    
+                    # 准备参数值
+                    values = [row[field] for field in available_fields]
+                    values.append(float(row['zero_day_score']) if 'zero_day_score' in row else 0.0)
+                    
+                    # 执行插入
+                    with self.conn.cursor() as cursor:
+                        cursor.execute(insert_query, values)
+                    
+                    inserted_count += 1
+                
+                # 提交事务
+                self.conn.commit()
+            else:
+                # 使用pandas to_sql
+                zero_day_score = data_to_insert['zero_day_score'] if 'zero_day_score' in data_to_insert.columns else 0.0
+                data_to_insert['detected_at'] = datetime.now()
+                data_to_insert['zero_day_score'] = zero_day_score
+                
+                # 将数据写入数据库
+                data_to_insert.to_sql('zero_day_alerts', self.engine, if_exists='append', index=False)
+                inserted_count = len(data_to_insert)
+            
+            print(f"成功插入 {inserted_count} 行到表 'zero_day_alerts'，跳过 {skipped_count} 行重复数据")
+            return inserted_count
+            
+        except Exception as e:
+            print(f"保存零日攻击记录失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0
+    
+    def create_zero_day_alerts_table(self):
+        """创建零日攻击告警表"""
+        try:
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS zero_day_alerts (
+                id BIGINT PRIMARY KEY,
+                event_time DATETIME,
+                event_type VARCHAR(50),
+                device_name VARCHAR(100),
+                device_ip VARCHAR(50),
+                threat_level INT,
+                category VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                attack_function VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                attack_step VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                signature VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                src_ip VARCHAR(50),
+                src_port INT,
+                src_mac VARCHAR(50),
+                dst_ip VARCHAR(50),
+                dst_port INT,
+                dst_mac VARCHAR(50),
+                protocol VARCHAR(20),
+                packets_to_server INT,
+                packets_to_client INT,
+                bytes_to_server INT,
+                bytes_to_client INT,
+                created_at DATETIME,
+                detected_at DATETIME,
+                zero_day_score FLOAT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """
+            
+            with self.conn.cursor() as cursor:
+                cursor.execute(create_table_sql)
+            self.conn.commit()
+            print("成功创建表 'zero_day_alerts'")
+            return True
+        except Exception as e:
+            print(f"创建零日攻击告警表失败: {e}")
+            return False
+    
+    def check_table_exists(self, table_name):
+        """检查表是否存在"""
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
+                return cursor.fetchone() is not None
+        except Exception as e:
+            print(f"检查表是否存在失败: {e}")
             return False 

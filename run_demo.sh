@@ -1,4 +1,12 @@
 #!/bin/bash
+###
+ # @Description: 
+ # @version: 
+ # @Author: Bao Jiaming
+ # @Date: 2025-05-08 21:10:47
+ # @LastEditTime: 2025-05-22 19:38:34
+ # @FilePath: \run_demo.sh
+### 
 
 # 进入项目目录
 cd "$(dirname "$0")"

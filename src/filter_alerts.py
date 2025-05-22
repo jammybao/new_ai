@@ -62,8 +62,10 @@ def classify_alerts(alerts_df, preprocessor, if_model, kmeans_model, threshold=N
     if_predictions = if_model.is_anomaly(X, threshold)
     kmeans_predictions = kmeans_model.is_anomaly(X, threshold)
     
-    # 组合多个模型的结果 (认为任一模型认为是异常的即为异常)
-    combined_predictions = if_predictions | kmeans_predictions
+    # 组合多个模型的结果
+    # 使用更合理的组合策略: 如果两个模型有一个认为是异常，则更可能是异常
+    # 但如果模型效果差异大，可以考虑只有两个都认为是异常才判定为异常
+    combined_predictions = if_predictions | kmeans_predictions  # 使用或操作，更宽松的异常条件
     
     # 添加预测结果到数据框
     processed_df['isolation_forest_score'] = if_model.predict(X)
@@ -72,9 +74,9 @@ def classify_alerts(alerts_df, preprocessor, if_model, kmeans_model, threshold=N
     processed_df['kmeans_anomaly'] = kmeans_predictions
     processed_df['is_anomaly'] = combined_predictions
     
-    # 计算综合得分 (两种方法的平均)
-    processed_df['anomaly_score'] = (processed_df['isolation_forest_score'] + 
-                                     processed_df['kmeans_score']) / 2
+    # 计算综合得分 (两种方法的加权平均，可根据模型效果调整权重)
+    processed_df['anomaly_score'] = (processed_df['isolation_forest_score'] * 0.6 + 
+                                     processed_df['kmeans_score'] * 0.4)
     
     return processed_df
 
@@ -195,6 +197,25 @@ def update_baseline_data(db, classified_df):
         print("没有低风险告警数据需要更新到基线")
         return
     
+    # 获取已存在的ID列表
+    try:
+        existing_ids_query = "SELECT id FROM baseline_alerts"
+        existing_ids_df = db.query_to_dataframe(existing_ids_query)
+        existing_ids = set(existing_ids_df['id'].tolist()) if existing_ids_df is not None and not existing_ids_df.empty else set()
+        
+        # 过滤掉已存在的ID
+        new_records_df = low_risk_df[~low_risk_df['id'].isin(existing_ids)]
+        
+        print(f"从 {len(low_risk_df)} 条低风险告警中筛选出 {len(new_records_df)} 条新记录")
+        
+        if len(new_records_df) == 0:
+            print("没有新的低风险告警数据需要添加到基线")
+            return True  # 返回成功，因为没有重复数据是期望的结果
+    except Exception as e:
+        print(f"获取现有ID列表失败: {e}")
+        print("将使用全部低风险告警数据，可能会有重复ID警告")
+        new_records_df = low_risk_df
+    
     # 原始数据表的字段（不包括特征工程添加的字段）
     original_columns = [
         'id', 'event_time', 'event_type', 'device_name', 'device_ip', 
@@ -205,7 +226,7 @@ def update_baseline_data(db, classified_df):
     ]
     
     # 只保存原始字段
-    save_cols = [col for col in original_columns if col in low_risk_df.columns]
+    save_cols = [col for col in original_columns if col in new_records_df.columns]
     print(f"将保存以下{len(save_cols)}个原始字段: {save_cols}")
     
     # 如果没有需要保存的字段，则返回
@@ -213,17 +234,21 @@ def update_baseline_data(db, classified_df):
         print("错误: 没有有效的字段可以保存")
         return False
         
-    low_risk_df = low_risk_df[save_cols]
+    new_records_df = new_records_df[save_cols]
     
     # 更新到基线表
-    result = db.save_results(low_risk_df, 'baseline_alerts', if_exists='append')
-    
-    if result:
-        print(f"成功将 {len(low_risk_df)} 条低风险告警更新到基线数据")
+    if len(new_records_df) > 0:
+        result = db.save_results(new_records_df, 'baseline_alerts', if_exists='append')
+        
+        if result:
+            print(f"成功将 {len(new_records_df)} 条新的低风险告警更新到基线数据")
+        else:
+            print("更新基线数据失败")
+            
+        return result
     else:
-        print("更新基线数据失败")
-    
-    return result
+        print("没有新数据需要添加到基线")
+        return True
 
 def main():
     """告警过滤主函数"""
@@ -235,11 +260,14 @@ def main():
     
     # 加载配置
     load_dotenv(config_path)
-    filter_days = 1  # 默认过滤最近1天的告警
-    threshold = float(os.getenv("THRESHOLD_SCORE", 0.8))
+    # 从配置文件获取过滤天数，默认7天
+    filter_days = int(os.getenv("FILTER_DAYS", 7))
+    threshold = float(os.getenv("THRESHOLD_SCORE", 0.6))
     
     print("="*80)
     print("基于AI的告警过滤系统")
+    print(f"配置文件路径: {config_path}")
+    print(f"加载的阈值: {os.getenv('THRESHOLD_SCORE', '未设置')} (使用: {threshold})")
     print(f"过滤时间范围: 最近{filter_days}天")
     print(f"告警分类阈值: {threshold}")
     print("="*80)
@@ -278,6 +306,13 @@ def main():
     # 更新基线数据
     print("\n正在更新基线数据...")
     update_baseline_data(db, classified_df)
+    
+    # 检查基线数据量
+    baseline_df = db.get_baseline_alerts()
+    baseline_min_size = int(os.getenv("BASELINE_MIN_SIZE", 100))
+    if baseline_df is None or len(baseline_df) < baseline_min_size:
+        print(f"\n提示: 基线数据量 ({len(baseline_df) if baseline_df is not None else 0}) 低于推荐值 ({baseline_min_size})")
+        print("系统将通过正常运行自动积累基线数据")
     
     print("\n" + "="*80)
     print("告警过滤完成")
