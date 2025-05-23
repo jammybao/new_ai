@@ -496,4 +496,92 @@ class DatabaseConnector:
                 return cursor.fetchone() is not None
         except Exception as e:
             print(f"检查表是否存在失败: {e}")
-            return False 
+            return False
+    
+    def create_system_config_table(self):
+        """创建系统配置表，用于存储各种配置和状态信息"""
+        try:
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS system_config (
+                config_key VARCHAR(50) PRIMARY KEY,
+                config_value TEXT,
+                last_updated DATETIME
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """
+            with self.conn.cursor() as cursor:
+                cursor.execute(create_table_sql)
+            self.conn.commit()
+            print("成功创建表 'system_config'")
+            return True
+        except Exception as e:
+            print(f"创建系统配置表失败: {e}")
+            return False
+    
+    def get_config(self, key, default=None):
+        """获取系统配置值"""
+        try:
+            # 确保表存在
+            if not self.check_table_exists('system_config'):
+                self.create_system_config_table()
+            
+            # 查询配置
+            with self.conn.cursor() as cursor:
+                cursor.execute("SELECT config_value FROM system_config WHERE config_key = %s", (key,))
+                result = cursor.fetchone()
+                return result[0] if result else default
+        except Exception as e:
+            print(f"获取配置失败: {e}")
+            return default
+    
+    def set_config(self, key, value):
+        """设置系统配置值"""
+        try:
+            # 确保表存在
+            if not self.check_table_exists('system_config'):
+                self.create_system_config_table()
+            
+            # 更新配置
+            with self.conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO system_config (config_key, config_value, last_updated)
+                VALUES (%s, %s, NOW())
+                ON DUPLICATE KEY UPDATE config_value = %s, last_updated = NOW()
+                """, (key, value, value))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"设置配置失败: {e}")
+            return False
+    
+    def get_last_update_time(self, update_type):
+        """获取最后更新时间
+        
+        参数:
+        - update_type: 更新类型，如 'baseline_data', 'baseline_model', 'zero_day_detection'
+        
+        返回:
+        - 最后更新时间（datetime对象）或None
+        """
+        time_str = self.get_config(f"last_{update_type}_update")
+        if time_str:
+            try:
+                return datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return None
+        return None
+    
+    def set_last_update_time(self, update_type, update_time=None):
+        """设置最后更新时间
+        
+        参数:
+        - update_type: 更新类型，如 'baseline_data', 'baseline_model', 'zero_day_detection'
+        - update_time: 更新时间，默认为当前时间
+        
+        返回:
+        - 是否成功
+        """
+        if update_time is None:
+            update_time = datetime.now()
+        
+        time_str = update_time.strftime("%Y-%m-%d %H:%M:%S")
+        return self.set_config(f"last_{update_type}_update", time_str) 

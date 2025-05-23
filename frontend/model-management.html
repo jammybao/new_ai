@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-IDS - 模型管理</title>
+  <link rel="stylesheet" href="./css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- 头部导航 -->
+    <header class="header">
+      <div class="logo">
+        <img src="./images/logo.png" alt="Logo" class="logo-img">
+        <span>AI入侵检测系统</span>
+      </div>
+      <div id="header-status"></div>
+    </header>
+
+    <!-- 主体内容 -->
+    <div class="main-container">
+      <!-- 侧边栏 -->
+      <div class="sidebar">
+        <ul class="nav-menu">
+          <li class="nav-menu-item active" onclick="location.href='./model-management.html'">
+            <span class="nav-menu-icon">⚙️</span> 模型管理
+          </li>
+          <li class="nav-menu-item" onclick="location.href='./zeroday-history.html'">
+            <span class="nav-menu-icon">🔍</span> 零日攻击历史
+          </li>
+          <li class="nav-menu-item" onclick="location.href='./data-visualization.html'">
+            <span class="nav-menu-icon">📊</span> 数据可视化
+          </li>
+        </ul>
+      </div>
+
+      <!-- 内容区域 -->
+      <div class="content">
+        <h1>模型管理</h1>
+        
+        <!-- 状态概览 -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">系统状态</h2>
+            <button class="btn btn-primary" id="refresh-status">
+              <span class="btn-icon">🔄</span> 刷新
+            </button>
+          </div>
+          <div id="system-status-content">
+            <div class="loading">
+              <div class="loading-spinner"></div>
+              <span>加载中...</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 模型更新 -->
+        <div class="row">
+          <!-- 基线数据更新 -->
+          <div class="col col-6">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">基线数据更新</h2>
+              </div>
+              <div class="form-group">
+                <label class="form-label">数据时间范围 (天)</label>
+                <input type="number" class="form-control" id="baseline-days" value="30" min="1" max="365">
+              </div>
+              <div class="form-group">
+                <label class="form-label">最小置信度分数 (0-1)</label>
+                <input type="number" class="form-control" id="baseline-score" value="0.5" min="0" max="1" step="0.1">
+              </div>
+              <div class="form-group">
+                <label class="form-label">排除攻击类型</label>
+                <div class="exclude-categories">
+                  <label>
+                    <input type="checkbox" value="严重漏洞" checked> 严重漏洞
+                  </label>
+                  <label>
+                    <input type="checkbox" value="勒索软件" checked> 勒索软件
+                  </label>
+                  <label>
+                    <input type="checkbox" value="数据泄露" checked> 数据泄露
+                  </label>
+                </div>
+              </div>
+              <button class="btn btn-success" id="update-baseline">
+                <span class="btn-icon">↻</span> 更新基线数据
+              </button>
+              <div id="baseline-update-result" class="mt-3"></div>
+            </div>
+          </div>
+          
+          <!-- 模型训练 -->
+          <div class="col col-6">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">模型训练</h2>
+              </div>
+              <p class="mb-4">
+                训练将使用最新的基线数据，通过机器学习算法构建基线模型和零日检测器。
+                训练过程可能需要几分钟时间，请耐心等待。
+              </p>
+              <div class="alert alert-info">
+                <span class="alert-icon">ℹ</span>
+                模型训练默认使用配置文件中设置的参数，训练窗口为最近90天的数据。
+              </div>
+              <button class="btn btn-primary" id="train-model">
+                <span class="btn-icon">🧠</span> 训练模型
+              </button>
+              <div id="model-train-result" class="mt-3"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 零日检测 -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">手动执行零日攻击检测</h2>
+          </div>
+          <div class="form-group">
+            <label class="form-label">检测时间范围 (小时)</label>
+            <input type="number" class="form-control" id="detection-hours" value="2" min="1" max="72">
+          </div>
+          <button class="btn btn-warning" id="detect-zeroday">
+            <span class="btn-icon">🔍</span> 执行检测
+          </button>
+          <div id="detection-result" class="mt-3"></div>
+        </div>
+
+        <!-- 模型文件信息 -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">模型文件信息</h2>
+          </div>
+          <div id="model-files-content">
+            <div class="loading">
+              <div class="loading-spinner"></div>
+              <span>加载中...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./js/utils.js"></script>
+  <script src="./js/api.js"></script>
+  <script>
+    // 页面加载完成后执行
+    document.addEventListener('DOMContentLoaded', function() {
+      // 加载系统状态
+      loadSystemStatus();
+      
+      // 添加事件监听
+      document.getElementById('refresh-status').addEventListener('click', loadSystemStatus);
+      document.getElementById('update-baseline').addEventListener('click', updateBaseline);
+      document.getElementById('train-model').addEventListener('click', trainModel);
+      document.getElementById('detect-zeroday').addEventListener('click', detectZeroDay);
+    });
+
+    // 加载系统状态
+    async function loadSystemStatus() {
+      try {
+        utils.showLoading('#system-status-content', '加载系统状态...');
+        utils.showLoading('#model-files-content', '加载模型文件信息...');
+        
+        // 获取系统版本信息
+        const result = await api.getSystemVersions();
+        
+        if (result.status === 'success') {
+          // 渲染系统状态
+          renderSystemStatus(result);
+          
+          // 渲染模型文件信息
+          renderModelFiles(result.model_files);
+        } else {
+          throw new Error(result.message || '获取系统状态失败');
+        }
+      } catch (error) {
+        utils.showMessage(error.message, 'error');
+        document.getElementById('system-status-content').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载系统状态失败: ${error.message}
+          </div>
+        `;
+        
+        document.getElementById('model-files-content').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载模型文件信息失败
+          </div>
+        `;
+      }
+    }
+
+    // 渲染系统状态
+    function renderSystemStatus(data) {
+      const { versions, system_time } = data;
+      
+      // 获取健康状态
+      api.checkHealth().then(healthData => {
+        document.getElementById('header-status').innerHTML = `
+          <div>
+            <span class="tag ${healthData.status === 'ok' ? 'tag-success' : 'tag-error'}">
+              ${healthData.status === 'ok' ? '系统正常' : '系统异常'}
+            </span>
+            <span style="margin-left: 10px; font-size: 12px; color: var(--text-color-secondary);">
+              ${utils.formatDate(system_time)}
+            </span>
+          </div>
+        `;
+      }).catch(err => {
+        document.getElementById('header-status').innerHTML = `
+          <span class="tag tag-error">系统异常</span>
+        `;
+      });
+      
+      // 渲染状态内容
+      const statusHtml = `
+        <div class="row">
+          <div class="col col-3">
+            <div class="status-item">
+              <div class="status-label">基线数据</div>
+              <div class="status-value">
+                ${utils.formatNumber(versions.baseline_data.count || 0)} 条
+              </div>
+              <div class="status-time">
+                ${versions.baseline_data.last_update ? `更新于: ${utils.formatDate(versions.baseline_data.last_update, 'YYYY-MM-DD HH:mm')}` : '尚未更新'}
+              </div>
+            </div>
+          </div>
+          <div class="col col-3">
+            <div class="status-item">
+              <div class="status-label">基线模型</div>
+              <div class="status-value">
+                ${versions.baseline_model.last_update ? '已训练' : '未训练'}
+              </div>
+              <div class="status-time">
+                ${versions.baseline_model.last_update ? `更新于: ${utils.formatDate(versions.baseline_model.last_update, 'YYYY-MM-DD HH:mm')}` : '尚未训练'}
+              </div>
+            </div>
+          </div>
+          <div class="col col-3">
+            <div class="status-item">
+              <div class="status-label">零日检测模型</div>
+              <div class="status-value">
+                ${versions.zero_day_model.last_update ? '已训练' : '未训练'}
+              </div>
+              <div class="status-time">
+                ${versions.zero_day_model.last_update ? `更新于: ${utils.formatDate(versions.zero_day_model.last_update, 'YYYY-MM-DD HH:mm')}` : '尚未训练'}
+              </div>
+            </div>
+          </div>
+          <div class="col col-3">
+            <div class="status-item">
+              <div class="status-label">最近检测</div>
+              <div class="status-value">
+                ${utils.formatNumber(versions.last_detection.count || 0)} 条零日攻击
+              </div>
+              <div class="status-time">
+                ${versions.last_detection.last_update ? `检测于: ${utils.formatDate(versions.last_detection.last_update, 'YYYY-MM-DD HH:mm')}` : '尚未执行检测'}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('system-status-content').innerHTML = statusHtml;
+    }
+
+    // 渲染模型文件信息
+    function renderModelFiles(modelFiles) {
+      if (!modelFiles) {
+        document.getElementById('model-files-content').innerHTML = `
+          <div class="alert alert-warning">
+            <span class="alert-icon">⚠</span> 未找到模型文件信息
+          </div>
+        `;
+        return;
+      }
+      
+      const filesHtml = `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>模型文件</th>
+              <th>大小</th>
+              <th>修改时间</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Object.entries(modelFiles).map(([fileName, fileInfo]) => {
+              const exists = fileInfo !== null;
+              return `
+                <tr>
+                  <td>${fileName}</td>
+                  <td>${exists ? formatFileSize(fileInfo.size) : '-'}</td>
+                  <td>${exists ? utils.formatDate(fileInfo.modified, 'YYYY-MM-DD HH:mm:ss') : '-'}</td>
+                  <td>
+                    <span class="tag ${exists ? 'tag-success' : 'tag-error'}">
+                      ${exists ? '存在' : '不存在'}
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+      
+      document.getElementById('model-files-content').innerHTML = filesHtml;
+    }
+
+    // 格式化文件大小
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // 更新基线数据
+    async function updateBaseline() {
+      try {
+        // 获取参数
+        const days = parseInt(document.getElementById('baseline-days').value) || 30;
+        const minScore = parseFloat(document.getElementById('baseline-score').value) || 0.5;
+        
+        // 获取排除类别
+        const excludeCategories = Array.from(
+          document.querySelectorAll('.exclude-categories input:checked')
+        ).map(input => input.value);
+        
+        const resultEl = document.getElementById('baseline-update-result');
+        resultEl.innerHTML = `
+          <div class="loading">
+            <div class="loading-spinner"></div>
+            <span>正在更新基线数据...</span>
+          </div>
+        `;
+        
+        // 调用API
+        const result = await api.updateBaseline({
+          days,
+          min_score: minScore,
+          exclude_categories: excludeCategories
+        });
+        
+        if (result.status === 'success') {
+          resultEl.innerHTML = `
+            <div class="alert alert-success">
+              <span class="alert-icon">✓</span> ${result.message || '基线数据更新成功'}
+            </div>
+            <div class="mt-2">
+              添加了 ${result.added_count} 条记录
+              <br>
+              更新时间: ${utils.formatDate(result.update_time)}
+            </div>
+          `;
+          
+          // 刷新系统状态
+          loadSystemStatus();
+        } else {
+          throw new Error(result.message || '更新基线数据失败');
+        }
+      } catch (error) {
+        document.getElementById('baseline-update-result').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 更新失败: ${error.message}
+          </div>
+        `;
+      }
+    }
+
+    // 训练模型
+    async function trainModel() {
+      try {
+        const resultEl = document.getElementById('model-train-result');
+        resultEl.innerHTML = `
+          <div class="loading">
+            <div class="loading-spinner"></div>
+            <span>正在训练模型，这可能需要几分钟时间...</span>
+          </div>
+        `;
+        
+        // 调用API
+        const result = await api.trainBaseline();
+        
+        if (result.status === 'success') {
+          resultEl.innerHTML = `
+            <div class="alert alert-success">
+              <span class="alert-icon">✓</span> ${result.message || '模型训练成功'}
+            </div>
+            <div class="mt-2">
+              更新时间: ${utils.formatDate(result.update_time)}
+            </div>
+          `;
+          
+          // 刷新系统状态
+          loadSystemStatus();
+        } else {
+          throw new Error(result.message || '训练模型失败');
+        }
+      } catch (error) {
+        document.getElementById('model-train-result').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 训练失败: ${error.message}
+          </div>
+        `;
+      }
+    }
+
+    // 执行零日攻击检测
+    async function detectZeroDay() {
+      try {
+        // 获取参数
+        const hours = parseInt(document.getElementById('detection-hours').value) || 2;
+        
+        const resultEl = document.getElementById('detection-result');
+        resultEl.innerHTML = `
+          <div class="loading">
+            <div class="loading-spinner"></div>
+            <span>正在执行零日攻击检测...</span>
+          </div>
+        `;
+        
+        // 调用API
+        const result = await api.detectZeroDay({ hours });
+        
+        if (result.status === 'success') {
+          // 成功情况
+          resultEl.innerHTML = `
+            <div class="alert alert-success">
+              <span class="alert-icon">✓</span> ${result.message || '检测完成'}
+            </div>
+            <div class="mt-3">
+              <div>总告警数: ${result.total_alerts}</div>
+              <div>异常数量: ${result.anomaly_count}</div>
+              <div>零日攻击: ${result.zero_day_count}</div>
+              <div>已保存记录: ${result.saved_count}</div>
+            </div>
+          `;
+          
+          // 如果有零日攻击详情，显示详情表格
+          if (result.zero_day_details && result.zero_day_details.length > 0) {
+            resultEl.innerHTML += `
+              <div class="mt-3">
+                <h3>零日攻击详情</h3>
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>时间</th>
+                      <th>类型</th>
+                      <th>源IP</th>
+                      <th>目标IP</th>
+                      <th>分数</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${result.zero_day_details.map(item => `
+                      <tr>
+                        <td>${item.id}</td>
+                        <td>${utils.formatDate(item.event_time)}</td>
+                        <td>${item.category}</td>
+                        <td>${item.src_ip}</td>
+                        <td>${item.dst_ip}</td>
+                        <td>${item.zero_day_score.toFixed(3)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }
+          
+          // 刷新系统状态
+          loadSystemStatus();
+        } else if (result.status === 'warning') {
+          // 警告情况
+          resultEl.innerHTML = `
+            <div class="alert alert-warning">
+              <span class="alert-icon">⚠</span> ${result.message || '检测警告'}
+            </div>
+          `;
+        } else {
+          throw new Error(result.message || '检测失败');
+        }
+      } catch (error) {
+        document.getElementById('detection-result').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 检测失败: ${error.message}
+          </div>
+        `;
+      }
+    }
+  </script>
+</body>
+</html> 

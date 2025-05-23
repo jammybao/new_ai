@@ -1,68 +1,170 @@
-# AI 入侵检测系统
+# AI-IDS 智能入侵检测系统
 
-基于机器学习的网络入侵检测系统，能够自动识别和过滤日常低风险攻击警报，同时提供零日攻击检测和攻击进阶分析功能。
+AI-IDS 是一个基于机器学习的智能入侵检测系统，集成了基线模型检测和零日攻击检测功能。系统能够自动学习网络流量的正常模式，并识别异常流量，特别是可能的零日攻击。
 
-## 功能
+## 系统特点
 
-- 数据库连接和数据提取
-- 基线建立和学习
-- 低风险攻击识别和分类
-- 警报过滤和管理
-- 零日攻击检测
-- 攻击进阶分析和预测
+1. **自动化基线建模**：系统定期收集和分析正常网络流量，构建网络行为基线
+2. **多模型集成检测**：结合隔离森林、K-Means 聚类和自编码器等多种算法
+3. **零日攻击检测**：使用深度学习方法检测前所未见的攻击模式
+4. **定时检测与报警**：每 2 小时自动检测一次，发现异常及时报警
+5. **可视化分析**：提供丰富的数据可视化功能，便于安全分析
+
+## 系统架构
+
+系统由以下几个主要组件构成：
+
+- **数据采集与预处理**：收集网络流量数据并进行特征工程
+- **基线模型训练**：使用隔离森林和 K-Means 建立基线模型
+- **零日攻击检测**：使用自编码器构建零日攻击检测模型
+- **API 服务**：提供 RESTful API 接口，便于与前端应用集成
+- **定时任务**：自动执行数据更新、模型训练和攻击检测
+
+## 安装与配置
+
+### 前提条件
+
+- Python 3.8+
+- MySQL 数据库
+- Git
+
+### 安装步骤
+
+1. 克隆代码库:
+
+   ```bash
+   git clone https://your-repository/ai-ids.git
+   cd ai-ids
+   ```
+
+2. 安装依赖包:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. 配置数据库连接:
+   编辑 `config/config.env` 文件设置数据库连接参数:
+   ```
+   DB_HOST=your_db_host
+   DB_PORT=your_db_port
+   DB_USER=your_db_user
+   DB_PASSWORD=your_db_password
+   DB_NAME=your_db_name
+   THRESHOLD_SCORE=0.5
+   FILTER_DAYS=30
+   BASELINE_MIN_SIZE=100
+   ZERODAY_DETECTION_HOURS=24
+   ```
 
 ## 使用方法
 
-1. 安装依赖：`pip install -r requirements.txt`
-2. 配置数据库连接：修改 `config/config.env` 文件
-3. 训练基线模型：`python src/train_baseline.py`
-4. 运行警报过滤：`python src/filter_alerts.py`
-5. 进行高级检测：`python src/advanced_detection.py --zero-day --progression`
+### 启动 API 服务
 
-## 更新基线模型
+使用以下命令启动 API 服务：
 
-每次执行`filter_alerts.py`后，系统会将低风险告警添加到基线数据库表`baseline_alerts`中。要利用这些新数据更新模型：
+```bash
+# 前台运行
+./run_api_server.sh
 
-1. 重新训练包含基线数据的模型：`python src/train_baseline.py`
-2. 如果仅想使用原始数据训练：`python src/train_baseline.py --no-baseline`
-
-模型更新后，会自动覆盖原有模型文件：
-
-- 预处理器：`models/preprocessor.joblib`
-- 隔离森林模型：`models/baseline_isolation_forest.joblib`
-- K 均值模型：`models/baseline_kmeans.joblib`
-
-## 零日攻击检测
-
-零日攻击检测功能使用增强的异常检测算法，能够识别出与已知模式不同的攻击行为：
-
-```
-python src/advanced_detection.py --zero-day --sensitivity 0.03
+# 后台运行
+./run_api_server.sh daemon
 ```
 
-参数说明：
+### API 接口说明
 
-- `--zero-day`：启用零日攻击检测
-- `--sensitivity`：检测敏感度，值越小越敏感(0.01-0.1)
-- `--days`：分析最近几天的数据(默认 30 天)
+系统提供以下 RESTful API 接口：
 
-## 攻击进阶分析
+#### 1. 健康检查
 
-攻击进阶分析功能可以构建攻击路径图，识别攻击链，并预测攻击者的下一步行动：
+- **URL**: `/api/health`
+- **方法**: `GET`
+- **描述**: 检查 API 服务运行状态
 
-```
-python src/advanced_detection.py --progression --attacker 192.168.1.100
-```
+#### 2. 基线数据管理
 
-参数说明：
+- **URL**: `/api/baseline/update`
+- **方法**: `POST`
+- **描述**: 更新基线数据
+- **参数**:
+  ```json
+  {
+    "days": 30 // 可选，指定从多少天前开始收集数据
+  }
+  ```
 
-- `--progression`：启用攻击进阶分析
-- `--attacker`：指定需要分析的攻击者 IP
-- `--output-dir`：指定结果输出目录
+#### 3. 基线模型训练
 
-## 项目结构
+- **URL**: `/api/baseline/train`
+- **方法**: `POST`
+- **描述**: 训练基线模型和零日检测器
 
-- `src/`: 源代码目录
-- `data/`: 数据文件目录
-- `models/`: 模型保存目录
-- `config/`: 配置文件目录
+#### 4. 零日攻击检测
+
+- **URL**: `/api/zeroday/detect`
+- **方法**: `POST`
+- **描述**: 执行零日攻击检测
+- **参数**:
+  ```json
+  {
+    "hours": 24 // 可选，指定检测最近多少小时的数据
+  }
+  ```
+
+#### 5. 零日攻击历史查询
+
+- **URL**: `/api/zeroday/history`
+- **方法**: `GET`
+- **描述**: 查询零日攻击历史记录
+- **参数**:
+  - `page`: 页码，默认 1
+  - `pageSize`: 每页记录数，默认 10
+  - `startDate`: 开始日期，可选
+  - `endDate`: 结束日期，可选
+
+#### 6. 系统统计数据
+
+- **URL**: `/api/stats`
+- **方法**: `GET`
+- **描述**: 获取系统统计数据，包括基线数据量、零日攻击数量、告警趋势等
+
+#### 7. 图表数据
+
+- **URL**: `/api/charts/<chart_type>`
+- **方法**: `GET`
+- **描述**: 获取图表数据
+- **chart_type**:
+  - `daily_alerts`: 每日告警统计
+  - `category_distribution`: 零日攻击分类分布
+  - `monthly_trend`: 每月零日攻击趋势
+
+## 自动化任务
+
+系统配置了以下自动化任务：
+
+1. **基线数据更新**：每天凌晨 2 点自动更新基线数据
+2. **基线模型训练**：每周一凌晨 3 点重新训练模型
+3. **零日攻击检测**：每 2 小时执行一次零日攻击检测
+
+## 前端集成
+
+您可以开发自己的前端应用，通过调用上述 API 接口与系统集成。建议实现以下几个页面：
+
+1. **控制面板**：显示系统概览、最近检测结果和关键统计数据
+2. **基线管理**：用于手动更新基线数据和训练模型
+3. **零日检测**：手动执行零日攻击检测并查看结果
+4. **历史记录**：查询和分析历史零日攻击记录
+5. **数据可视化**：展示各类统计图表和趋势分析
+
+## 故障排除
+
+如果您遇到问题，请检查：
+
+1. 数据库连接是否正确
+2. 日志文件中是否有错误信息（`logs/app.log`）
+3. 模型文件是否存在（`models/`目录）
+4. 基线数据是否足够（至少 100 条记录）
+
+## 贡献与支持
+
+如有问题或建议，请提交 Issue 或联系我们。

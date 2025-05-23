@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-IDS - 人工智能入侵检测系统</title>
+  <link rel="stylesheet" href="./css/style.css">
+  <script>
+    // 页面加载完成后重定向到模型管理页面
+    window.onload = function() {
+      window.location.href = './model-management.html';
+    };
+  </script>
+  <style>
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background-color: var(--bg-color);
+    }
+    
+    .logo-container {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .logo-img {
+      width: 100px;
+      height: auto;
+      margin-bottom: 15px;
+    }
+    
+    .app-title {
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--text-color);
+      margin-bottom: 10px;
+    }
+    
+    .app-subtitle {
+      color: var(--text-color-secondary);
+      margin-bottom: 30px;
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-container">
+    <div class="logo-container">
+      <img src="./images/logo.png" alt="Logo" class="logo-img">
+      <div class="app-title">AI入侵检测系统</div>
+      <div class="app-subtitle">基于人工智能的网络安全分析平台</div>
+    </div>
+    <div class="loading">
+      <div class="loading-spinner"></div>
+      <span>正在加载系统，请稍候...</span>
+    </div>
+  </div>
+</body>
+</html> 

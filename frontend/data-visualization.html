@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-IDS - 数据可视化</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- 头部导航 -->
+        <header class="header">
+            <div class="logo">
+                <img src="./images/logo.png" alt="Logo" class="logo-img">
+                <span>AI入侵检测系统</span>
+            </div>
+            <div id="header-status"></div>
+        </header>
+
+        <!-- 主体内容 -->
+        <div class="main-container">
+            <!-- 侧边栏 -->
+            <div class="sidebar">
+                <ul class="nav-menu">
+                    <li class="nav-menu-item" onclick="location.href='./model-management.html'">
+                        <span class="nav-menu-icon">⚙️</span> 模型管理
+                    </li>
+                    <li class="nav-menu-item" onclick="location.href='./zeroday-history.html'">
+                        <span class="nav-menu-icon">🔍</span> 零日攻击历史
+                    </li>
+                    <li class="nav-menu-item active" onclick="location.href='./data-visualization.html'">
+                        <span class="nav-menu-icon">📊</span> 数据可视化
+                    </li>
+                </ul>
+            </div>
+
+            <!-- 内容区域 -->
+            <div class="content">
+                <h1>数据可视化</h1>
+
+                <!-- 图表控制面板 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">图表控制</h2>
+                        <button class="btn btn-primary" id="refresh-charts">
+                            <span class="btn-icon">🔄</span> 刷新所有图表
+                        </button>
+                    </div>
+                    <div class="chart-controls">
+                        <div class="row">
+                            <div class="col col-6">
+                                <div class="form-group">
+                                    <label class="form-label">模型散点图数据范围 (天)</label>
+                                    <select class="form-control" id="model-chart-days">
+                                        <option value="1">最近1天</option>
+                                        <option value="3">最近3天</option>
+                                        <option value="7" selected>最近7天</option>
+                                        <option value="14">最近14天</option>
+                                        <option value="30">最近30天</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col col-6">
+                                <div class="form-group">
+                                    <label class="form-label">导出图表</label>
+                                    <button class="btn btn-success" id="export-charts">
+                                        <span class="btn-icon">📥</span> 导出当前图表
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 图表展示区域 -->
+                <div class="row">
+                    <!-- 每日告警统计 -->
+                    <div class="col col-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">每日告警统计</h2>
+                            </div>
+                            <div class="chart-container" id="daily-alerts-chart">
+                                <div class="loading">
+                                    <div class="loading-spinner"></div>
+                                    <span>加载中...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 攻击类型分布 -->
+                    <div class="col col-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">零日攻击类型分布</h2>
+                            </div>
+                            <div class="chart-container" id="category-distribution-chart">
+                                <div class="loading">
+                                    <div class="loading-spinner"></div>
+                                    <span>加载中...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <!-- 月度趋势 -->
+                    <div class="col col-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">零日攻击月度趋势</h2>
+                            </div>
+                            <div class="chart-container" id="monthly-trend-chart">
+                                <div class="loading">
+                                    <div class="loading-spinner"></div>
+                                    <span>加载中...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 源IP统计 -->
+                    <div class="col col-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">内网攻击源IP统计</h2>
+                            </div>
+                            <div class="chart-container" id="ip-attack-stats-chart">
+                                <div class="loading">
+                                    <div class="loading-spinner"></div>
+                                    <span>加载中...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 模型散点图 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">告警数据模型分布</h2>
+                        <div>
+                            <span class="legend-item">
+                                <span class="legend-color" style="background-color: #52c41a;"></span> 正常
+                            </span>
+                            <span class="legend-item">
+                                <span class="legend-color" style="background-color: #faad14;"></span> 可疑
+                            </span>
+                            <span class="legend-item">
+                                <span class="legend-color" style="background-color: #f5222d;"></span> 异常
+                            </span>
+                            <span class="legend-item">
+                                <span class="legend-color"
+                                    style="background-color: #000; transform: rotate(45deg);"></span> 聚类中心
+                            </span>
+                        </div>
+                    </div>
+                    <div class="chart-container" style="height: 500px;" id="model-distribution-chart">
+                        <div class="loading">
+                            <div class="loading-spinner"></div>
+                            <span>加载中...</span>
+                        </div>
+                    </div>
+                    <div class="chart-description">
+                        <p><strong>图表说明：</strong> 告警数据模型分布图通过降维展示高维特征空间中的告警数据分布。</p>
+                        <ul>
+                            <li><strong>点的颜色：</strong> 表示异常分数，从绿色（正常）到红色（异常）</li>
+                            <li><strong>点的大小：</strong> 表示零日攻击风险分数，分数越高点越大</li>
+                            <li><strong>黑色菱形：</strong> 表示聚类中心位置</li>
+                        </ul>
+                        <p>此图表可以直观地展示AI系统对告警数据的聚类和异常检测效果。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="./js/utils.js"></script>
+    <script src="./js/api.js"></script>
+    <script>
+        // 图表实例
+        const charts = {
+            dailyAlerts: null,
+            categoryDistribution: null,
+            monthlyTrend: null,
+            ipAttackStats: null,
+            modelDistribution: null
+        };
+
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function () {
+            // 加载所有图表
+            loadAllCharts();
+
+            // 添加事件监听
+            document.getElementById('refresh-charts').addEventListener('click', loadAllCharts);
+
+            document.getElementById('model-chart-days').addEventListener('change', function () {
+                loadModelDistributionChart();
+            });
+
+            document.getElementById('export-charts').addEventListener('click', exportCharts);
+
+            // 检查健康状态
+            checkHealth();
+
+            // 窗口大小变化时，调整图表大小
+            window.addEventListener('resize', resizeAllCharts);
+        });
+
+        // 检查健康状态
+        async function checkHealth() {
+            try {
+                const result = await api.checkHealth();
+
+                document.getElementById('header-status').innerHTML = `
+          <div>
+            <span class="tag ${result.status === 'ok' ? 'tag-success' : 'tag-error'}">
+              ${result.status === 'ok' ? '系统正常' : '系统异常'}
+            </span>
+            <span style="margin-left: 10px; font-size: 12px; color: var(--text-color-secondary);">
+              ${utils.formatDate(result.time)}
+            </span>
+          </div>
+        `;
+            } catch (error) {
+                document.getElementById('header-status').innerHTML = `
+          <span class="tag tag-error">系统异常</span>
+        `;
+            }
+        }
+
+        // 加载所有图表
+        function loadAllCharts() {
+            loadDailyAlertsChart();
+            loadCategoryDistributionChart();
+            loadMonthlyTrendChart();
+            loadIpAttackStatsChart();
+            loadModelDistributionChart();
+        }
+
+        // 调整所有图表大小
+        function resizeAllCharts() {
+            for (const key in charts) {
+                if (charts[key]) {
+                    charts[key].resize();
+                }
+            }
+        }
+
+        // 加载每日告警统计图表
+        async function loadDailyAlertsChart() {
+            try {
+                utils.showLoading('#daily-alerts-chart', '加载每日告警统计...');
+
+                const result = await api.getChartData('daily_alerts');
+
+                if (result.status === 'success') {
+                    const chartDom = document.getElementById('daily-alerts-chart');
+                    chartDom.innerHTML = '';
+
+                    // 使用新的图表初始化方法
+                    charts.dailyAlerts = utils.initChart('#daily-alerts-chart', result.data);
+                } else {
+                    throw new Error(result.message || '加载图表失败');
+                }
+            } catch (error) {
+                utils.showMessage(error.message, 'error');
+                document.getElementById('daily-alerts-chart').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载图表失败: ${error.message}
+          </div>
+        `;
+            }
+        }
+
+        // 加载攻击类型分布图表
+        async function loadCategoryDistributionChart() {
+            try {
+                utils.showLoading('#category-distribution-chart', '加载攻击类型分布...');
+
+                const result = await api.getChartData('category_distribution');
+
+                if (result.status === 'success') {
+                    const chartDom = document.getElementById('category-distribution-chart');
+                    chartDom.innerHTML = '';
+
+                    // 使用新的图表初始化方法
+                    charts.categoryDistribution = utils.initChart('#category-distribution-chart', result.data);
+                } else if (result.status === 'warning') {
+                    document.getElementById('category-distribution-chart').innerHTML = `
+            <div class="alert alert-warning">
+              <span class="alert-icon">⚠</span> ${result.message || '暂无数据'}
+            </div>
+          `;
+                } else {
+                    throw new Error(result.message || '加载图表失败');
+                }
+            } catch (error) {
+                utils.showMessage(error.message, 'error');
+                document.getElementById('category-distribution-chart').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载图表失败: ${error.message}
+          </div>
+        `;
+            }
+        }
+
+        // 加载月度趋势图表
+        async function loadMonthlyTrendChart() {
+            try {
+                utils.showLoading('#monthly-trend-chart', '加载月度趋势...');
+
+                const result = await api.getChartData('monthly_trend');
+
+                if (result.status === 'success') {
+                    const chartDom = document.getElementById('monthly-trend-chart');
+                    chartDom.innerHTML = '';
+
+                    // 使用新的图表初始化方法
+                    charts.monthlyTrend = utils.initChart('#monthly-trend-chart', result.data);
+                } else if (result.status === 'warning') {
+                    document.getElementById('monthly-trend-chart').innerHTML = `
+            <div class="alert alert-warning">
+              <span class="alert-icon">⚠</span> ${result.message || '暂无数据'}
+            </div>
+          `;
+                } else {
+                    throw new Error(result.message || '加载图表失败');
+                }
+            } catch (error) {
+                utils.showMessage(error.message, 'error');
+                document.getElementById('monthly-trend-chart').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载图表失败: ${error.message}
+          </div>
+        `;
+            }
+        }
+
+        // 加载IP攻击统计图表
+        async function loadIpAttackStatsChart() {
+            try {
+                utils.showLoading('#ip-attack-stats-chart', '加载IP攻击统计...');
+
+                const result = await api.getChartData('ip_attack_stats');
+
+                if (result.status === 'success') {
+                    const chartDom = document.getElementById('ip-attack-stats-chart');
+                    chartDom.innerHTML = '';
+
+                    // 使用新的数据格式
+                    charts.ipAttackStats = utils.initChart(
+                        '#ip-attack-stats-chart',
+                        'horizontalBar',
+                        result.data
+                    );
+                } else if (result.status === 'warning') {
+                    document.getElementById('ip-attack-stats-chart').innerHTML = `
+            <div class="alert alert-warning">
+              <span class="alert-icon">⚠</span> ${result.message || '暂无数据'}
+            </div>
+          `;
+                } else {
+                    throw new Error(result.message || '加载图表失败');
+                }
+            } catch (error) {
+                utils.showMessage(error.message, 'error');
+                document.getElementById('ip-attack-stats-chart').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载图表失败: ${error.message}
+          </div>
+        `;
+            }
+        }
+
+        // 加载模型散点图
+        async function loadModelDistributionChart() {
+            try {
+                utils.showLoading('#model-distribution-chart', '加载模型散点图...');
+
+                // 获取数据范围
+                const days = document.getElementById('model-chart-days').value;
+
+                const result = await api.getChartData('model_distribution', { days });
+
+                if (result.status === 'success') {
+                    const chartDom = document.getElementById('model-distribution-chart');
+                    chartDom.innerHTML = '';
+
+                    // 使用新的图表初始化方法，散点图类型
+                    charts.modelDistribution = utils.initChart('#model-distribution-chart', 'scatter', result.data);
+                } else if (result.status === 'warning') {
+                    document.getElementById('model-distribution-chart').innerHTML = `
+                        <div class="alert alert-warning">
+                            <span class="alert-icon">⚠</span> ${result.message || '暂无数据'}
+                        </div>
+                    `;
+                } else {
+                    throw new Error(result.message || '加载图表失败');
+                }
+            } catch (error) {
+                utils.showMessage(error.message, 'error');
+                document.getElementById('model-distribution-chart').innerHTML = `
+                    <div class="alert alert-error">
+                        <span class="alert-icon">✗</span> 加载图表失败: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // 导出图表为图片
+        function exportCharts() {
+            try {
+                // 创建一个临时链接用于下载
+                const download = function (url, filename) {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.click();
+                };
+
+                // 导出每个图表
+                for (const key in charts) {
+                    if (charts[key]) {
+                        const url = charts[key].getDataURL({
+                            type: 'png',
+                            pixelRatio: 2,
+                            backgroundColor: '#fff'
+                        });
+
+                        download(url, `ai-ids-${key}-${new Date().toISOString().slice(0, 10)}.png`);
+                    }
+                }
+
+                utils.showMessage('已导出所有图表', 'success');
+            } catch (error) {
+                utils.showMessage('导出图表失败: ' + error.message, 'error');
+            }
+        }
+    </script>
+
+    <style>
+        /* 页面特定样式 */
+        .chart-controls {
+            margin-top: 15px;
+        }
+
+        .chart-description {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+
+        .chart-description p {
+            margin-bottom: 10px;
+        }
+
+        .chart-description ul {
+            padding-left: 20px;
+            margin-bottom: 10px;
+        }
+
+        .chart-description li {
+            margin-bottom: 5px;
+        }
+
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 15px;
+            font-size: 12px;
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+            border-radius: 2px;
+        }
+    </style>
+</body>
+
+</html>

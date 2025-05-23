@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-IDS - 零日攻击历史</title>
+  <link rel="stylesheet" href="./css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- 头部导航 -->
+    <header class="header">
+      <div class="logo">
+        <img src="./images/logo.png" alt="Logo" class="logo-img">
+        <span>AI入侵检测系统</span>
+      </div>
+      <div id="header-status"></div>
+    </header>
+
+    <!-- 主体内容 -->
+    <div class="main-container">
+      <!-- 侧边栏 -->
+      <div class="sidebar">
+        <ul class="nav-menu">
+          <li class="nav-menu-item" onclick="location.href='./model-management.html'">
+            <span class="nav-menu-icon">⚙️</span> 模型管理
+          </li>
+          <li class="nav-menu-item active" onclick="location.href='./zeroday-history.html'">
+            <span class="nav-menu-icon">🔍</span> 零日攻击历史
+          </li>
+          <li class="nav-menu-item" onclick="location.href='./data-visualization.html'">
+            <span class="nav-menu-icon">📊</span> 数据可视化
+          </li>
+        </ul>
+      </div>
+
+      <!-- 内容区域 -->
+      <div class="content">
+        <h1>零日攻击历史</h1>
+        
+        <!-- 搜索条件 -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">搜索条件</h2>
+          </div>
+          <div class="row">
+            <div class="col col-4">
+              <div class="form-group">
+                <label class="form-label">开始日期</label>
+                <input type="date" class="form-control" id="start-date">
+              </div>
+            </div>
+            <div class="col col-4">
+              <div class="form-group">
+                <label class="form-label">结束日期</label>
+                <input type="date" class="form-control" id="end-date">
+              </div>
+            </div>
+            <div class="col col-4">
+              <div class="form-group">
+                <label class="form-label">每页记录数</label>
+                <select class="form-control" id="page-size">
+                  <option value="10">10</option>
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="search-btn">
+            <span class="btn-icon">🔍</span> 搜索
+          </button>
+        </div>
+        
+        <!-- 统计信息 -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">零日攻击统计</h2>
+          </div>
+          <div id="stats-content">
+            <div class="loading">
+              <div class="loading-spinner"></div>
+              <span>加载中...</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 攻击列表 -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">零日攻击列表</h2>
+            <div>
+              <span id="total-records"></span>
+            </div>
+          </div>
+          <div id="zero-day-table">
+            <div class="loading">
+              <div class="loading-spinner"></div>
+              <span>加载中...</span>
+            </div>
+          </div>
+          
+          <!-- 分页控件 -->
+          <div class="pagination" id="pagination">
+            <button class="btn" id="prev-page">&lt; 上一页</button>
+            <span id="page-info">第 1 页 / 共 1 页</span>
+            <button class="btn" id="next-page">下一页 &gt;</button>
+          </div>
+        </div>
+        
+        <!-- 攻击详情模态框 -->
+        <div id="attack-detail-modal" class="modal">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3>攻击详情</h3>
+              <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body" id="attack-detail-content">
+              <div class="loading">
+                <div class="loading-spinner"></div>
+                <span>加载中...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./js/utils.js"></script>
+  <script src="./js/api.js"></script>
+  <script>
+    // 当前页码
+    let currentPage = 1;
+    // 总页数
+    let totalPages = 1;
+    // 总记录数
+    let totalRecords = 0;
+    // 每页记录数
+    let pageSize = 10;
+    
+    // 页面加载完成后执行
+    document.addEventListener('DOMContentLoaded', function() {
+      // 设置默认日期
+      setDefaultDates();
+      
+      // 加载数据
+      loadZeroDayHistory();
+      
+      // 加载统计信息
+      loadStats();
+      
+      // 添加事件监听
+      document.getElementById('search-btn').addEventListener('click', function() {
+        currentPage = 1;
+        loadZeroDayHistory();
+      });
+      
+      document.getElementById('prev-page').addEventListener('click', function() {
+        if (currentPage > 1) {
+          currentPage--;
+          loadZeroDayHistory();
+        }
+      });
+      
+      document.getElementById('next-page').addEventListener('click', function() {
+        if (currentPage < totalPages) {
+          currentPage++;
+          loadZeroDayHistory();
+        }
+      });
+      
+      document.getElementById('page-size').addEventListener('change', function() {
+        pageSize = parseInt(this.value);
+        currentPage = 1;
+        loadZeroDayHistory();
+      });
+      
+      // 模态框关闭按钮
+      document.querySelector('.close-modal').addEventListener('click', function() {
+        document.getElementById('attack-detail-modal').style.display = 'none';
+      });
+      
+      // 点击模态框外部关闭
+      window.addEventListener('click', function(event) {
+        if (event.target === document.getElementById('attack-detail-modal')) {
+          document.getElementById('attack-detail-modal').style.display = 'none';
+        }
+      });
+      
+      // 检查健康状态
+      checkHealth();
+    });
+    
+    // 设置默认日期范围
+    function setDefaultDates() {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      
+      document.getElementById('start-date').value = formatDateForInput(startDate);
+      document.getElementById('end-date').value = formatDateForInput(endDate);
+    }
+    
+    // 格式化日期为输入框格式
+    function formatDateForInput(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      
+      return `${year}-${month}-${day}`;
+    }
+    
+    // 检查健康状态
+    async function checkHealth() {
+      try {
+        const result = await api.checkHealth();
+        
+        document.getElementById('header-status').innerHTML = `
+          <div>
+            <span class="tag ${result.status === 'ok' ? 'tag-success' : 'tag-error'}">
+              ${result.status === 'ok' ? '系统正常' : '系统异常'}
+            </span>
+            <span style="margin-left: 10px; font-size: 12px; color: var(--text-color-secondary);">
+              ${utils.formatDate(result.time)}
+            </span>
+          </div>
+        `;
+      } catch (error) {
+        document.getElementById('header-status').innerHTML = `
+          <span class="tag tag-error">系统异常</span>
+        `;
+      }
+    }
+    
+    // 加载零日攻击历史
+    async function loadZeroDayHistory() {
+      try {
+        utils.showLoading('#zero-day-table', '加载历史数据...');
+        
+        // 获取查询参数
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
+        
+        // 查询数据
+        const result = await api.getZeroDayHistory({
+          page: currentPage,
+          pageSize: pageSize,
+          startDate: startDate,
+          endDate: endDate
+        });
+        
+        if (result.status === 'success') {
+          // 更新总记录数和总页数
+          totalRecords = result.total;
+          totalPages = Math.ceil(totalRecords / pageSize);
+          
+          // 更新分页信息
+          document.getElementById('total-records').textContent = `共 ${totalRecords} 条记录`;
+          document.getElementById('page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+          
+          // 禁用或启用分页按钮
+          document.getElementById('prev-page').disabled = currentPage <= 1;
+          document.getElementById('next-page').disabled = currentPage >= totalPages;
+          
+          if (result.data && result.data.length > 0) {
+            // 渲染数据表格
+            renderZeroDayTable(result.data);
+          } else {
+            document.getElementById('zero-day-table').innerHTML = `
+              <div class="alert alert-info">
+                <span class="alert-icon">ℹ</span> 没有找到零日攻击记录
+              </div>
+            `;
+          }
+        } else {
+          throw new Error(result.message || '加载数据失败');
+        }
+      } catch (error) {
+        utils.showMessage(error.message, 'error');
+        document.getElementById('zero-day-table').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载数据失败: ${error.message}
+          </div>
+        `;
+      }
+    }
+    
+    // 渲染零日攻击表格
+    function renderZeroDayTable(data) {
+      const tableHtml = `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>检测时间</th>
+              <th>事件时间</th>
+              <th>攻击类型</th>
+              <th>源IP</th>
+              <th>目标IP</th>
+              <th>威胁等级</th>
+              <th>零日分数</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map(item => `
+              <tr>
+                <td>${item.id}</td>
+                <td>${utils.formatDate(item.detected_at)}</td>
+                <td>${utils.formatDate(item.event_time)}</td>
+                <td>${item.category}</td>
+                <td>${item.src_ip}</td>
+                <td>${item.dst_ip}</td>
+                <td>
+                  <span class="tag ${getThreatLevelTag(item.threat_level)}">
+                    ${getThreatLevelText(item.threat_level)}
+                  </span>
+                </td>
+                <td>${item.zero_day_score.toFixed(3)}</td>
+                <td>
+                  <button class="btn btn-primary btn-sm" onclick="showAttackDetail(${item.id})">
+                    详情
+                  </button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      
+      document.getElementById('zero-day-table').innerHTML = tableHtml;
+    }
+    
+    // 获取威胁等级标签样式
+    function getThreatLevelTag(level) {
+      if (level >= 4) return 'tag-error';
+      if (level >= 2) return 'tag-warning';
+      return 'tag-success';
+    }
+    
+    // 获取威胁等级文本
+    function getThreatLevelText(level) {
+      if (level >= 4) return '高危';
+      if (level >= 2) return '中危';
+      return '低危';
+    }
+    
+    // 显示攻击详情
+    function showAttackDetail(id) {
+      const modal = document.getElementById('attack-detail-modal');
+      modal.style.display = 'block';
+      
+      // 从当前数据中查找详情
+      api.getZeroDayHistory({
+        page: currentPage,
+        pageSize: pageSize,
+        startDate: document.getElementById('start-date').value,
+        endDate: document.getElementById('end-date').value
+      }).then(result => {
+        if (result.status === 'success') {
+          const attack = result.data.find(item => item.id === id);
+          if (attack) {
+            renderAttackDetail(attack);
+          } else {
+            document.getElementById('attack-detail-content').innerHTML = `
+              <div class="alert alert-error">
+                <span class="alert-icon">✗</span> 未找到攻击详情
+              </div>
+            `;
+          }
+        } else {
+          throw new Error(result.message || '加载详情失败');
+        }
+      }).catch(error => {
+        document.getElementById('attack-detail-content').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载详情失败: ${error.message}
+          </div>
+        `;
+      });
+    }
+    
+    // 渲染攻击详情
+    function renderAttackDetail(attack) {
+      const detailHtml = `
+        <div class="attack-detail">
+          <div class="row">
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">ID</div>
+                <div class="detail-value">${attack.id}</div>
+              </div>
+            </div>
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">检测时间</div>
+                <div class="detail-value">${utils.formatDate(attack.detected_at)}</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="row">
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">事件时间</div>
+                <div class="detail-value">${utils.formatDate(attack.event_time)}</div>
+              </div>
+            </div>
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">威胁等级</div>
+                <div class="detail-value">
+                  <span class="tag ${getThreatLevelTag(attack.threat_level)}">
+                    ${getThreatLevelText(attack.threat_level)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="row">
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">攻击类型</div>
+                <div class="detail-value">${attack.category}</div>
+              </div>
+            </div>
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">零日分数</div>
+                <div class="detail-value">${attack.zero_day_score.toFixed(3)}</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="row">
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">源IP</div>
+                <div class="detail-value">${attack.src_ip}</div>
+              </div>
+            </div>
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">源端口</div>
+                <div class="detail-value">${attack.src_port || 'N/A'}</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="row">
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">目标IP</div>
+                <div class="detail-value">${attack.dst_ip}</div>
+              </div>
+            </div>
+            <div class="col col-6">
+              <div class="detail-item">
+                <div class="detail-label">目标端口</div>
+                <div class="detail-value">${attack.dst_port || 'N/A'}</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="row">
+            <div class="col col-12">
+              <div class="detail-item">
+                <div class="detail-label">攻击特征</div>
+                <div class="detail-value signature">${attack.signature || 'N/A'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('attack-detail-content').innerHTML = detailHtml;
+    }
+    
+    // 加载统计信息
+    async function loadStats() {
+      try {
+        utils.showLoading('#stats-content', '加载统计信息...');
+        
+        // 获取系统统计数据
+        const result = await api.getStats();
+        
+        if (result.status === 'success') {
+          renderStats(result);
+        } else {
+          throw new Error(result.message || '加载统计信息失败');
+        }
+      } catch (error) {
+        utils.showMessage(error.message, 'error');
+        document.getElementById('stats-content').innerHTML = `
+          <div class="alert alert-error">
+            <span class="alert-icon">✗</span> 加载统计信息失败: ${error.message}
+          </div>
+        `;
+      }
+    }
+    
+    // 渲染统计信息
+    function renderStats(data) {
+      const statsHtml = `
+        <div class="row">
+          <div class="col col-3">
+            <div class="stat-card">
+              <div class="stat-icon">🔍</div>
+              <div class="stat-value">${utils.formatNumber(data.zeroday_count)}</div>
+              <div class="stat-label">零日攻击总数</div>
+            </div>
+          </div>
+          <div class="col col-3">
+            <div class="stat-card">
+              <div class="stat-icon">📊</div>
+              <div class="stat-value">${data.categories ? data.categories.length : 0}</div>
+              <div class="stat-label">攻击类型</div>
+            </div>
+          </div>
+          <div class="col col-3">
+            <div class="stat-card">
+              <div class="stat-icon">🌐</div>
+              <div class="stat-value">${data.top_source_ips ? data.top_source_ips.length : 0}</div>
+              <div class="stat-label">攻击源IP</div>
+            </div>
+          </div>
+          <div class="col col-3">
+            <div class="stat-card">
+              <div class="stat-icon">📈</div>
+              <div class="stat-value">${data.baseline_count}</div>
+              <div class="stat-label">基线数据量</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="category-distribution">
+          <h3>攻击类型分布</h3>
+          <div class="category-tags">
+            ${data.categories ? data.categories.map(cat => `
+              <div class="category-tag">
+                <span class="tag tag-primary">${cat.category}</span>
+                <span class="tag-count">${cat.count}</span>
+              </div>
+            `).join('') : '暂无数据'}
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('stats-content').innerHTML = statsHtml;
+    }
+  </script>
+  
+  <style>
+    /* 页面特定样式 */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 20px;
+    }
+    
+    .pagination button {
+      margin: 0 10px;
+    }
+    
+    .pagination button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    #page-info {
+      margin: 0 10px;
+    }
+    
+    .btn-sm {
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1001;
+    }
+    
+    .modal-content {
+      background-color: #fff;
+      margin: 10% auto;
+      padding: 20px;
+      border-radius: 4px;
+      width: 80%;
+      max-width: 800px;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 15px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 15px;
+    }
+    
+    .close-modal {
+      font-size: 24px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    
+    .close-modal:hover {
+      color: var(--primary-color);
+    }
+    
+    .detail-item {
+      margin-bottom: 15px;
+    }
+    
+    .detail-label {
+      font-weight: 500;
+      color: var(--text-color-secondary);
+      margin-bottom: 5px;
+    }
+    
+    .detail-value {
+      font-size: 16px;
+    }
+    
+    .detail-value.signature {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    
+    .stat-card {
+      background-color: #fff;
+      border-radius: 4px;
+      padding: 15px;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      height: 100%;
+    }
+    
+    .stat-icon {
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    
+    .stat-label {
+      color: var(--text-color-secondary);
+    }
+    
+    .category-distribution {
+      margin-top: 20px;
+    }
+    
+    .category-tags {
+      display: flex;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    
+    .category-tag {
+      display: flex;
+      align-items: center;
+      margin-right: 15px;
+      margin-bottom: 10px;
+    }
+    
+    .tag-count {
+      margin-left: 5px;
+      font-size: 12px;
+      color: var(--text-color-secondary);
+    }
+    
+    .mt-2 {
+      margin-top: 10px;
+    }
+    
+    .mt-3 {
+      margin-top: 15px;
+    }
+    
+    .mb-4 {
+      margin-bottom: 20px;
+    }
+    
+    .exclude-categories {
+      display: flex;
+      flex-wrap: wrap;
+    }
+    
+    .exclude-categories label {
+      margin-right: 15px;
+      display: flex;
+      align-items: center;
+    }
+    
+    .exclude-categories label input {
+      margin-right: 5px;
+    }
+  </style>
+</body>
+</html> 

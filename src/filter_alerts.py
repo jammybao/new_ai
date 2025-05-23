@@ -179,76 +179,77 @@ def generate_report(classified_df, save_path=None):
     
     return classified_df
 
-def update_baseline_data(db, classified_df):
+def update_baseline_data(db, days=None, min_score=None, exclude_categories=None):
     """
-    将低风险告警更新到基线数据中
+    更新基线数据 - 将低风险/正常告警添加到基线数据中
     
-    参数:
-        db: DatabaseConnector实例
-        classified_df: 包含分类结果的DataFrame
+    参数：
+    - db: 数据库连接器
+    - days: 过滤最近几天的数据，None表示使用配置文件中的FILTER_DAYS
+    - min_score: 最小阈值分数，低于此分数的告警被视为正常，None表示使用配置文件中的THRESHOLD_SCORE
+    - exclude_categories: 要排除的告警类别列表
     
-    返回:
-        bool: 是否成功更新
+    返回：
+    - 添加到基线的记录数量
     """
-    # 获取低风险告警
-    low_risk_df = classified_df[~classified_df['is_anomaly']]
+    # 加载配置
+    if days is None:
+        days = int(os.getenv("FILTER_DAYS", 30))
     
-    if len(low_risk_df) == 0:
-        print("没有低风险告警数据需要更新到基线")
-        return
+    if min_score is None:
+        min_score = float(os.getenv("THRESHOLD_SCORE", 0.5))
     
-    # 获取已存在的ID列表
+    if exclude_categories is None:
+        exclude_categories = ["严重漏洞", "勒索软件", "数据泄露"]
+    
+    print(f"配置参数: 时间窗口={days}天, 阈值分数={min_score}, 排除类别={exclude_categories}")
+    
+    # 获取已有的基线数据ID列表，用于过滤重复数据
     try:
-        existing_ids_query = "SELECT id FROM baseline_alerts"
-        existing_ids_df = db.query_to_dataframe(existing_ids_query)
-        existing_ids = set(existing_ids_df['id'].tolist()) if existing_ids_df is not None and not existing_ids_df.empty else set()
-        
-        # 过滤掉已存在的ID
-        new_records_df = low_risk_df[~low_risk_df['id'].isin(existing_ids)]
-        
-        print(f"从 {len(low_risk_df)} 条低风险告警中筛选出 {len(new_records_df)} 条新记录")
-        
-        if len(new_records_df) == 0:
-            print("没有新的低风险告警数据需要添加到基线")
-            return True  # 返回成功，因为没有重复数据是期望的结果
+        baseline_query = "SELECT id FROM baseline_alerts"
+        baseline_ids_df = db.query_to_dataframe(baseline_query)
+        existing_ids = set(baseline_ids_df['id']) if not baseline_ids_df.empty else set()
+        print(f"已有基线数据ID数量: {len(existing_ids)}")
     except Exception as e:
-        print(f"获取现有ID列表失败: {e}")
-        print("将使用全部低风险告警数据，可能会有重复ID警告")
-        new_records_df = low_risk_df
+        print(f"获取基线数据ID失败: {e}")
+        existing_ids = set()
     
-    # 原始数据表的字段（不包括特征工程添加的字段）
-    original_columns = [
-        'id', 'event_time', 'event_type', 'device_name', 'device_ip', 
-        'threat_level', 'category', 'attack_function', 'attack_step', 
-        'signature', 'src_ip', 'src_port', 'src_mac', 'dst_ip', 'dst_port', 
-        'dst_mac', 'protocol', 'packets_to_server', 'packets_to_client', 
-        'bytes_to_server', 'bytes_to_client', 'created_at'
-    ]
+    # 查询符合条件的告警数据
+    query = f"""
+    SELECT * FROM ids_ai 
+    WHERE 
+        threat_level < {min_score * 10} AND 
+        created_at >= DATE_SUB(NOW(), INTERVAL {days} DAY)
+    """
     
-    # 只保存原始字段
-    save_cols = [col for col in original_columns if col in new_records_df.columns]
-    print(f"将保存以下{len(save_cols)}个原始字段: {save_cols}")
+    if exclude_categories and len(exclude_categories) > 0:
+        exclude_cats = "', '".join(exclude_categories)
+        query += f" AND category NOT IN ('{exclude_cats}')"
     
-    # 如果没有需要保存的字段，则返回
-    if len(save_cols) == 0:
-        print("错误: 没有有效的字段可以保存")
-        return False
-        
-    new_records_df = new_records_df[save_cols]
+    alerts_df = db.query_to_dataframe(query)
     
-    # 更新到基线表
-    if len(new_records_df) > 0:
-        result = db.save_results(new_records_df, 'baseline_alerts', if_exists='append')
-        
-        if result:
-            print(f"成功将 {len(new_records_df)} 条新的低风险告警更新到基线数据")
-        else:
-            print("更新基线数据失败")
-            
-        return result
-    else:
-        print("没有新数据需要添加到基线")
-        return True
+    if alerts_df is None or alerts_df.empty:
+        print("没有找到符合条件的告警数据")
+        return 0
+    
+    print(f"找到 {len(alerts_df)} 条潜在基线数据")
+    
+    # 过滤掉已存在的ID
+    new_alerts_df = alerts_df[~alerts_df['id'].isin(existing_ids)]
+    print(f"过滤后剩余 {len(new_alerts_df)} 条新基线数据")
+    
+    if new_alerts_df.empty:
+        print("没有新的基线数据需要添加")
+        return 0
+    
+    # 保存新的基线数据
+    try:
+        db.save_results(new_alerts_df, "baseline_alerts")
+        print(f"成功保存 {len(new_alerts_df)} 条基线数据")
+        return len(new_alerts_df)
+    except Exception as e:
+        print(f"保存基线数据失败: {e}")
+        return 0
 
 def main():
     """告警过滤主函数"""
@@ -305,7 +306,7 @@ def main():
     
     # 更新基线数据
     print("\n正在更新基线数据...")
-    update_baseline_data(db, classified_df)
+    update_baseline_data(db, filter_days, threshold, ["严重漏洞", "勒索软件", "数据泄露"])
     
     # 检查基线数据量
     baseline_df = db.get_baseline_alerts()
