@@ -142,6 +142,14 @@ def detect_zero_day_attacks(alerts, preprocessor, if_model, kmeans_model, detect
         results['is_baseline_anomaly'] = baseline_anomalies
         results['is_zero_day_candidate'] = zero_day_anomalies
         
+        # 添加预处理后的IP内外网信息到结果中
+        if 'src_ip_is_internal' in processed_df.columns:
+            results['src_ip_is_internal'] = processed_df['src_ip_is_internal'].values
+        if 'dst_ip_is_internal' in processed_df.columns:
+            results['dst_ip_is_internal'] = processed_df['dst_ip_is_internal'].values
+        if 'device_ip_is_internal' in processed_df.columns:
+            results['device_ip_is_internal'] = processed_df['device_ip_is_internal'].values
+        
         # 6. 确定最终的零日攻击
         # 条件: 同时被基线模型和零日检测器判定为异常
         results['is_zero_day'] = results['is_baseline_anomaly'] & results['is_zero_day_candidate']
@@ -154,7 +162,27 @@ def detect_zero_day_attacks(alerts, preprocessor, if_model, kmeans_model, detect
         else:
             results['zero_day_score'] = 0
         
-        # 8. 生成统计信息
+        # 8. 新增规则：所有来自外网IP的攻击都被认为是零日攻击
+        if 'src_ip_is_internal' in results.columns:
+            # src_ip_is_internal = 0 表示外网IP，= 1 表示内网IP
+            external_ip_attacks = results['src_ip_is_internal'] == 0
+            print(f"发现 {external_ip_attacks.sum()} 个来自外网IP的攻击")
+            
+            # 将所有外网IP攻击标记为零日攻击
+            results['is_zero_day'] = results['is_zero_day'] | external_ip_attacks
+            
+            # 对于外网IP攻击，如果零日分数较低，则提升分数
+            external_mask = external_ip_attacks & (results['zero_day_score'] < 0.8)
+            if external_mask.sum() > 0:
+                print(f"提升 {external_mask.sum()} 个外网IP攻击的零日分数")
+                results.loc[external_mask, 'zero_day_score'] = np.maximum(
+                    results.loc[external_mask, 'zero_day_score'], 
+                    0.8  # 外网IP攻击的最低分数设为0.8
+                )
+        else:
+            print("警告: 无法获取IP内外网信息，无法应用外网IP规则")
+        
+        # 9. 生成统计信息
         total_alerts = len(results)
         anomaly_count = sum(results['is_baseline_anomaly'])
         zero_day_count = sum(results['is_zero_day'])
@@ -354,8 +382,8 @@ def main():
         alerts = db.get_alerts_by_timerange(start_time_for_query, end_time)
         print(f"成功获取 {len(alerts)} 条告警数据")
         
-        if alerts.empty or len(alerts) < 10:  # 需要至少10条记录才能进行有效检测
-            print(f"告警数据不足，无法进行检测，当前只有 {len(alerts)} 条告警")
+        if alerts.empty or len(alerts) < 1:  # 只要有数据就可以进行检测
+            print(f"没有告警数据需要检测，当前只有 {len(alerts)} 条告警")
             return
             
         # 数据概览

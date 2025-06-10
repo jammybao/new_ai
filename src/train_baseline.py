@@ -7,6 +7,9 @@ import time
 import pandas as pd
 import numpy as np
 from datetime import datetime
+# 设置matplotlib后端为非交互式的Agg后端，避免Tkinter资源冲突
+import matplotlib
+matplotlib.use('Agg')  # 必须在导入pyplot之前设置
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 import traceback
@@ -284,6 +287,8 @@ def train_baseline_models(db_connector):
             print(f"预处理器已保存至 {os.path.join(models_dir, 'preprocessor.joblib')}")
         except Exception as e:
             print(f"数据预处理失败: {e}")
+            # 确保清理matplotlib资源
+            plt.close('all')
             return {"success": False, "error": f"数据预处理失败: {e}"}
         
         # 训练基线模型
@@ -320,24 +325,36 @@ def train_baseline_models(db_connector):
                 
                 # 可视化结果
                 model.visualize(X, predictions, save_path=os.path.join(models_dir, f"baseline_{method}_viz.png"))
+                
+                # 清理当前迭代的matplotlib资源
+                plt.close('all')
             except Exception as e:
                 print(f"训练 {method} 模型失败: {e}")
                 results[method] = {"error": str(e)}
+                # 清理异常时的matplotlib资源
+                plt.close('all')
                 continue
         
         if not models:
             return {"success": False, "error": "所有模型训练都失败"}
         
-        return {
+        # 训练成功后的结果
+        result = {
             "success": True,
             "feature_dim": X.shape[1],
             "data_count": len(alerts_df),
             "models": results
         }
+        
+        return result
     except Exception as e:
         print(f"训练过程发生错误: {e}")
         traceback.print_exc()
         return {"success": False, "error": str(e)}
+    finally:
+        # 确保在函数结束时清理所有matplotlib资源
+        plt.close('all')
+        print("清理所有matplotlib图形资源完成")
 
 if __name__ == "__main__":
     try:

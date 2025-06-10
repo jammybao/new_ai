@@ -11,8 +11,19 @@ import scipy.sparse as sp
 
 class IDSDataPreprocessor:
     def __init__(self, internal_ips=None):
-        # 修改这一行，避免DataFrame的布尔值判断
-        self.internal_ips_df = internal_ips if internal_ips is not None else []
+        # 确保internal_ips_df是DataFrame或None
+        if internal_ips is not None:
+            if isinstance(internal_ips, pd.DataFrame):
+                self.internal_ips_df = internal_ips
+            else:
+                # 如果传入的不是DataFrame，尝试转换
+                try:
+                    self.internal_ips_df = pd.DataFrame(internal_ips)
+                except:
+                    self.internal_ips_df = None
+        else:
+            self.internal_ips_df = None
+        
         # 使用ids_ai表的原始字段
         self.categorical_cols = ['protocol', 'event_type', 'category', 'attack_function', 'attack_step', 'signature']
         self.numeric_cols = ['threat_level', 'packets_to_server', 'packets_to_client', 'bytes_to_server', 'bytes_to_client']
@@ -40,7 +51,7 @@ class IDSDataPreprocessor:
             
         try:
             # 检查IP是否直接在内部IP列表中
-            if internal_ips_df is not None and not internal_ips_df.empty:
+            if internal_ips_df is not None and isinstance(internal_ips_df, pd.DataFrame) and not internal_ips_df.empty:
                 # 尝试查找包含IP地址的列
                 ip_columns = ['ip_address', 'ip', 'address', 'internal_ip']
                 
@@ -367,7 +378,7 @@ def is_internal_ip(ip, internal_ips_df):
     """
     try:
         # 检查IP是否直接在内部IP列表中
-        if internal_ips_df is not None and not internal_ips_df.empty:
+        if internal_ips_df is not None and isinstance(internal_ips_df, pd.DataFrame) and not internal_ips_df.empty:
             # 尝试查找包含IP地址的列
             ip_columns = ['ip_address', 'ip', 'address', 'internal_ip']
             

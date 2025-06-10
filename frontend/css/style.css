@@ -54,16 +54,41 @@ a {
   z-index: 1000;
 }
 
-.logo {
-  font-size: 20px;
-  font-weight: bold;
+/* Logo样式 */
+.navbar-brand {
   display: flex;
   align-items: center;
+  font-weight: bold;
+}
+
+.logo-text {
+  font-size: 24px;
+  font-weight: bold;
+  color: #2c3e50;
+  text-decoration: none;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 2px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  font-weight: bold;
 }
 
 .logo-img {
-  height: 32px;
-  margin-right: 10px;
+  height: 40px;
+  width: auto;
+  margin-right: 12px;
+}
+
+.logo span {
+  font-size: 18px;
+  color: #2c3e50;
+  font-weight: 600;
 }
 
 .main-container {

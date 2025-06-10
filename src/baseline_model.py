@@ -250,85 +250,91 @@ class BaselineModel:
         - predictions: 异常检测结果 (0表示异常)
         - save_path: 图像保存路径
         """
-        # 检查输入是否为稀疏矩阵并处理
-        is_sparse = sp.issparse(X)
-        if is_sparse:
-            print("可视化处理稀疏矩阵")
-            # 确保稀疏矩阵是CSR格式
-            if not isinstance(X, sp.csr_matrix):
-                print(f"可视化前转换矩阵格式从 {type(X)} 到 CSR格式")
-                X = X.tocsr()
-        
-        # 如果未提供预测结果，则使用模型预测
-        if predictions is None:
-            print("未提供预测结果，使用模型进行预测")
-            predictions = self.is_anomaly(X)
-        
-        # 对于可视化，我们总是需要降维到2维
-        print("进行可视化降维")
-        if self.dim_reduction is None:
-            # 如果没有降维器，创建一个新的
-            print("创建新的降维器用于可视化")
+        try:
+            # 检查输入是否为稀疏矩阵并处理
+            is_sparse = sp.issparse(X)
             if is_sparse:
-                print("使用TruncatedSVD降维到2维")
-                self.dim_reduction = TruncatedSVD(n_components=2)
-            else:
-                print("使用PCA降维到2维")
-                self.dim_reduction = PCA(n_components=2)
-            X_reduced = self.dim_reduction.fit_transform(X)
-        else:
-            # 如果已有降维器但维度不是2，创建一个新的2维降维器
-            if self.dim_reduction.n_components < 2:
-                print(f"现有降维器维度不足，创建新的2维降维器")
+                print("可视化处理稀疏矩阵")
+                # 确保稀疏矩阵是CSR格式
+                if not isinstance(X, sp.csr_matrix):
+                    print(f"可视化前转换矩阵格式从 {type(X)} 到 CSR格式")
+                    X = X.tocsr()
+            
+            # 如果未提供预测结果，则使用模型预测
+            if predictions is None:
+                print("未提供预测结果，使用模型进行预测")
+                predictions = self.is_anomaly(X)
+            
+            # 对于可视化，我们总是需要降维到2维
+            print("进行可视化降维")
+            if self.dim_reduction is None:
+                # 如果没有降维器，创建一个新的
+                print("创建新的降维器用于可视化")
                 if is_sparse:
-                    viz_reducer = TruncatedSVD(n_components=2)
+                    print("使用TruncatedSVD降维到2维")
+                    self.dim_reduction = TruncatedSVD(n_components=2)
                 else:
-                    viz_reducer = PCA(n_components=2)
-                X_reduced = viz_reducer.fit_transform(X)
+                    print("使用PCA降维到2维")
+                    self.dim_reduction = PCA(n_components=2)
+                X_reduced = self.dim_reduction.fit_transform(X)
             else:
-                # 使用现有降维器，但只取前两个维度
-                print(f"使用现有的降维器，取前两个维度进行可视化")
-                X_temp = self.dim_reduction.transform(X)
-                X_reduced = X_temp[:, :2]
-        
-        print(f"降维后形状: {X_reduced.shape}, 开始绘图")
-        plt.figure(figsize=(10, 8))
-        
-        # 绘制正常点和异常点
-        plt.scatter(X_reduced[~predictions, 0], X_reduced[~predictions, 1], 
-                   c='blue', label='正常', alpha=0.5)
-        if np.any(predictions):  # 只在存在异常时绘制
-            plt.scatter(X_reduced[predictions, 0], X_reduced[predictions, 1], 
-                       c='red', label='异常', alpha=0.5)
-        
-        # 如果是KMeans，绘制聚类中心
-        if self.method == 'kmeans':
-            print("绘制KMeans聚类中心")
-            if hasattr(self, 'trained_on_reduced') and self.trained_on_reduced:
-                # 如果模型是在降维数据上训练的，聚类中心已经在降维空间
-                centers = self.model.cluster_centers_
-                # 只取前两个维度的聚类中心
-                centers_reduced = centers[:, :2]
-            else:
-                # 否则需要将聚类中心转换到降维空间
-                centers_reduced = self.dim_reduction.transform(self.model.cluster_centers_)
-                
-            plt.scatter(centers_reduced[:, 0], centers_reduced[:, 1], 
-                       c='black', s=200, alpha=0.5, marker='x', label='聚类中心')
-        
-        plt.title(f'基线模型 ({self.method}) 异常检测结果')
-        plt.xlabel('主成分1')
-        plt.ylabel('主成分2')
-        plt.legend()
-        plt.grid(True, linestyle='--', alpha=0.7)
-        
-        if save_path:
-            print(f"保存可视化结果到: {save_path}")
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            plt.savefig(save_path)
-            plt.close()
-        else:
-            plt.show()
+                # 如果已有降维器但维度不是2，创建一个新的2维降维器
+                if self.dim_reduction.n_components < 2:
+                    print(f"现有降维器维度不足，创建新的2维降维器")
+                    if is_sparse:
+                        viz_reducer = TruncatedSVD(n_components=2)
+                    else:
+                        viz_reducer = PCA(n_components=2)
+                    X_reduced = viz_reducer.fit_transform(X)
+                else:
+                    # 使用现有降维器，但只取前两个维度
+                    print(f"使用现有的降维器，取前两个维度进行可视化")
+                    X_temp = self.dim_reduction.transform(X)
+                    X_reduced = X_temp[:, :2]
+            
+            print(f"降维后形状: {X_reduced.shape}, 开始绘图")
+            plt.figure(figsize=(10, 8))
+            
+            # 绘制正常点和异常点
+            plt.scatter(X_reduced[~predictions, 0], X_reduced[~predictions, 1], 
+                       c='blue', label='正常', alpha=0.5)
+            if np.any(predictions):  # 只在存在异常时绘制
+                plt.scatter(X_reduced[predictions, 0], X_reduced[predictions, 1], 
+                           c='red', label='异常', alpha=0.5)
+            
+            # 如果是KMeans，绘制聚类中心
+            if self.method == 'kmeans':
+                print("绘制KMeans聚类中心")
+                if hasattr(self, 'trained_on_reduced') and self.trained_on_reduced:
+                    # 如果模型是在降维数据上训练的，聚类中心已经在降维空间
+                    centers = self.model.cluster_centers_
+                    # 只取前两个维度的聚类中心
+                    centers_reduced = centers[:, :2]
+                else:
+                    # 否则需要将聚类中心转换到降维空间
+                    centers_reduced = self.dim_reduction.transform(self.model.cluster_centers_)
+                    
+                plt.scatter(centers_reduced[:, 0], centers_reduced[:, 1], 
+                           c='black', s=200, alpha=0.5, marker='x', label='聚类中心')
+            
+            plt.title(f'基线模型 ({self.method}) 异常检测结果')
+            plt.xlabel('主成分1')
+            plt.ylabel('主成分2')
+            plt.legend()
+            plt.grid(True, linestyle='--', alpha=0.7)
+            
+            if save_path:
+                print(f"保存可视化结果到: {save_path}")
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                plt.savefig(save_path)
+        except Exception as e:
+            print(f"可视化过程中出错: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # 确保总是关闭matplotlib图形，防止资源泄漏
+            plt.close('all')
+            print("已关闭所有matplotlib图形资源")
     
     @classmethod
     def load(cls, path="../models/baseline_model.joblib"):

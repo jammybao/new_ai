@@ -153,8 +153,8 @@ def auto_zero_day_detection():
         start_time = end_time - timedelta(hours=DETECTION_HOURS)
         
         alerts = db.get_alerts_by_timerange(start_time, end_time)
-        if alerts.empty or len(alerts) < 10:
-            app.logger.info(f"告警数据不足，无法进行检测，当前只有 {len(alerts)} 条告警")
+        if alerts.empty or len(alerts) < 1:
+            app.logger.info(f"没有告警数据需要检测，当前只有 {len(alerts)} 条告警")
             return False
         
         app.logger.info(f"获取到 {len(alerts)} 条告警数据，开始检测...")
@@ -184,8 +184,8 @@ def auto_zero_day_detection():
             zero_day_df['detected_at'] = detection_time
             db.save_zero_day_alerts(zero_day_df)
             app.logger.info(f"已保存 {zero_day_count} 条零日攻击记录到数据库")
-            
-            # 记录检测时间
+        
+        # 记录检测时间
             db.set_last_update_time('zero_day_detection', detection_time)
         else:
             # 即使没有发现零日攻击，也记录检测时间
@@ -310,10 +310,10 @@ def api_detect_zeroday():
         start_time = end_time - timedelta(hours=hours)
         
         alerts = db.get_alerts_by_timerange(start_time, end_time)
-        if alerts.empty or len(alerts) < 10:
+        if alerts.empty or len(alerts) < 1:
             return jsonify({
                 'status': 'warning',
-                'message': f'告警数据不足，无法进行检测，当前只有 {len(alerts)} 条告警',
+                'message': f'没有告警数据需要检测，当前只有 {len(alerts)} 条告警',
                 'count': len(alerts)
             })
         
@@ -357,9 +357,22 @@ def api_detect_zeroday():
                     'event_time': row['event_time'].strftime('%Y-%m-%d %H:%M:%S') if 'event_time' in row and pd.notna(row['event_time']) else None,
                     'category': row.get('category', 'Unknown'),
                     'src_ip': row.get('src_ip', 'Unknown'),
+                    'src_port': int(row['src_port']) if pd.notna(row.get('src_port')) else None,
                     'dst_ip': row.get('dst_ip', 'Unknown'),
+                    'dst_port': int(row['dst_port']) if pd.notna(row.get('dst_port')) else None,
                     'zero_day_score': float(row.get('zero_day_score', 0)),
-                    'signature': row.get('signature', 'Unknown')
+                    'signature': row.get('signature', 'Unknown'),
+                    'protocol': row.get('protocol', 'Unknown'),
+                    'device_name': row.get('device_name', 'Unknown'),
+                    'device_ip': row.get('device_ip', 'Unknown'),
+                    'attack_function': row.get('attack_function', 'Unknown'),
+                    'attack_step': row.get('attack_step', 'Unknown'),
+                    'src_mac': row.get('src_mac', 'Unknown'),
+                    'dst_mac': row.get('dst_mac', 'Unknown'),
+                    'packets_to_server': int(row['packets_to_server']) if pd.notna(row.get('packets_to_server')) else 0,
+                    'packets_to_client': int(row['packets_to_client']) if pd.notna(row.get('packets_to_client')) else 0,
+                    'bytes_to_server': int(row['bytes_to_server']) if pd.notna(row.get('bytes_to_server')) else 0,
+                    'bytes_to_client': int(row['bytes_to_client']) if pd.notna(row.get('bytes_to_client')) else 0
                 }
                 zero_day_details.append(detail)
         
@@ -386,36 +399,53 @@ def api_detect_zeroday():
 @app.route('/api/zeroday/history', methods=['GET'])
 def api_zeroday_history():
     try:
-        # 分页参数
+        # 时间范围过滤 - 支持两种参数名格式
+        start_date = request.args.get('startDate', None) or request.args.get('start_date', None)
+        end_date = request.args.get('endDate', None) or request.args.get('end_date', None)
+        
+        # 分页参数 - 支持两种参数名格式
         page = int(request.args.get('page', 1))
-        page_size = int(request.args.get('pageSize', 10))
+        page_size = int(request.args.get('pageSize', request.args.get('page_size', 10)))
         
-        # 时间范围过滤
-        start_date = request.args.get('startDate', None)
-        end_date = request.args.get('endDate', None)
-        
-        # 构建查询
+        # 构建查询 - 使用created_at字段而不是detected_at
         query = "SELECT * FROM zero_day_alerts"
         count_query = "SELECT COUNT(*) as total FROM zero_day_alerts"
         
         where_clauses = []
         if start_date:
-            where_clauses.append(f"detected_at >= '{start_date}'")
+            where_clauses.append(f"DATE(created_at) >= '{start_date}'")
         if end_date:
-            where_clauses.append(f"detected_at <= '{end_date}'")
+            where_clauses.append(f"DATE(created_at) <= '{end_date}'")
         
         if where_clauses:
             query += " WHERE " + " AND ".join(where_clauses)
             count_query += " WHERE " + " AND ".join(where_clauses)
         
-        # 添加排序和分页
-        query += " ORDER BY detected_at DESC"
+        # 添加排序和分页 - 使用created_at字段排序
+        query += " ORDER BY created_at DESC"
         query += f" LIMIT {page_size} OFFSET {(page-1)*page_size}"
+        
+        # 添加调试日志
+        app.logger.info(f"零日攻击历史查询: {query}")
+        app.logger.info(f"计数查询: {count_query}")
         
         # 执行查询
         result = db.query_to_dataframe(query)
         count_result = db.query_to_dataframe(count_query)
-        total = int(count_result['total'].iloc[0]) if not count_result.empty else 0
+        
+        # 添加调试日志
+        app.logger.info(f"主查询结果类型: {type(result)}, 是否为None: {result is None}")
+        if result is not None:
+            app.logger.info(f"主查询记录数: {len(result)}, 是否为空: {result.empty}")
+        app.logger.info(f"计数查询结果类型: {type(count_result)}, 是否为None: {count_result is None}")
+        if count_result is not None:
+            app.logger.info(f"计数查询记录数: {len(count_result)}, 是否为空: {count_result.empty}")
+        
+        # 处理查询结果为None的情况
+        if count_result is None:
+            total = 0
+        else:
+            total = int(count_result['total'].iloc[0]) if not count_result.empty else 0
         
         # 处理结果
         if result is None or result.empty:
@@ -423,7 +453,7 @@ def api_zeroday_history():
                 'status': 'success',
                 'message': '没有找到零日攻击记录',
                 'data': [],
-                'total': 0,
+                'total': total,
                 'page': page,
                 'page_size': page_size
             })
@@ -434,13 +464,26 @@ def api_zeroday_history():
             record = {
                 'id': int(row['id']),
                 'event_time': row['event_time'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(row['event_time']) else None,
-                'detected_at': row['detected_at'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(row['detected_at']) else None,
+                'detected_at': row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(row['created_at']) else None,  # 使用created_at作为检测时间
                 'category': row.get('category', 'Unknown'),
                 'src_ip': row.get('src_ip', 'Unknown'),
+                'src_port': int(row['src_port']) if pd.notna(row.get('src_port')) else None,
                 'dst_ip': row.get('dst_ip', 'Unknown'),
+                'dst_port': int(row['dst_port']) if pd.notna(row.get('dst_port')) else None,
                 'threat_level': int(row['threat_level']) if pd.notna(row['threat_level']) else 0,
                 'zero_day_score': float(row['zero_day_score']) if pd.notna(row['zero_day_score']) else 0,
-                'signature': row.get('signature', 'Unknown')
+                'signature': row.get('signature', 'Unknown'),
+                'protocol': row.get('protocol', 'Unknown'),
+                'device_name': row.get('device_name', 'Unknown'),
+                'device_ip': row.get('device_ip', 'Unknown'),
+                'attack_function': row.get('attack_function', 'Unknown'),
+                'attack_step': row.get('attack_step', 'Unknown'),
+                'src_mac': row.get('src_mac', 'Unknown'),
+                'dst_mac': row.get('dst_mac', 'Unknown'),
+                'packets_to_server': int(row['packets_to_server']) if pd.notna(row.get('packets_to_server')) else 0,
+                'packets_to_client': int(row['packets_to_client']) if pd.notna(row.get('packets_to_client')) else 0,
+                'bytes_to_server': int(row['bytes_to_server']) if pd.notna(row.get('bytes_to_server')) else 0,
+                'bytes_to_client': int(row['bytes_to_client']) if pd.notna(row.get('bytes_to_client')) else 0
             }
             records.append(record)
         
@@ -465,12 +508,12 @@ def api_stats():
         # 获取基线数据统计
         baseline_query = "SELECT COUNT(*) as count FROM baseline_alerts"
         baseline_result = db.query_to_dataframe(baseline_query)
-        baseline_count = int(baseline_result['count'].iloc[0]) if not baseline_result.empty else 0
+        baseline_count = int(baseline_result['count'].iloc[0]) if baseline_result is not None and not baseline_result.empty else 0
         
         # 获取零日攻击统计
         zeroday_query = "SELECT COUNT(*) as count FROM zero_day_alerts"
         zeroday_result = db.query_to_dataframe(zeroday_query)
-        zeroday_count = int(zeroday_result['count'].iloc[0]) if not zeroday_result.empty else 0
+        zeroday_count = int(zeroday_result['count'].iloc[0]) if zeroday_result is not None and not zeroday_result.empty else 0
         
         # 获取最近30天的告警统计
         recent_query = f"""
@@ -530,10 +573,10 @@ def api_stats():
         
         # 获取每月零日攻击趋势
         trend_query = """
-        SELECT DATE_FORMAT(detected_at, '%Y-%m') as month, COUNT(*) as count 
+        SELECT YEAR(created_at) as year, MONTH(created_at) as month, COUNT(*) as count 
         FROM zero_day_alerts 
-        GROUP BY DATE_FORMAT(detected_at, '%Y-%m')
-        ORDER BY month
+        GROUP BY YEAR(created_at), MONTH(created_at)
+        ORDER BY year, month
         """
         trend_result = db.query_to_dataframe(trend_query)
         
@@ -541,8 +584,9 @@ def api_stats():
         monthly_trend = []
         if trend_result is not None and not trend_result.empty:
             for _, row in trend_result.iterrows():
+                month_str = f"{int(row['year'])}-{int(row['month']):02d}"
                 monthly_trend.append({
-                    'month': row['month'],
+                    'month': month_str,
                     'count': int(row['count'])
                 })
         
@@ -583,9 +627,18 @@ def api_charts(chart_type):
                     'message': '没有最近30天的告警数据'
                 })
             
-            # 只返回纯数据
-            dates = recent_result['date'].dt.strftime('%Y-%m-%d').tolist()
+            # 处理日期数据，确保正确转换
+            dates = []
             counts = recent_result['count'].tolist()
+            
+            for _, row in recent_result.iterrows():
+                if pd.notna(row['date']):
+                    if isinstance(row['date'], str):
+                        dates.append(row['date'])
+                    else:
+                        dates.append(row['date'].strftime('%Y-%m-%d'))
+                else:
+                    dates.append('未知日期')
             
             return jsonify({
                 'status': 'success',
@@ -636,10 +689,10 @@ def api_charts(chart_type):
         elif chart_type == 'monthly_trend':
             # 生成每月零日攻击趋势图数据
             trend_query = """
-            SELECT DATE_FORMAT(detected_at, '%Y-%m') as month, COUNT(*) as count 
+            SELECT YEAR(created_at) as year, MONTH(created_at) as month, COUNT(*) as count 
             FROM zero_day_alerts 
-            GROUP BY DATE_FORMAT(detected_at, '%Y-%m')
-            ORDER BY month
+            GROUP BY YEAR(created_at), MONTH(created_at)
+            ORDER BY year, month
             """
             trend_result = db.query_to_dataframe(trend_query)
             
@@ -649,9 +702,13 @@ def api_charts(chart_type):
                     'message': '没有零日攻击趋势数据'
                 })
             
-            # 只返回纯数据
-            months = trend_result['month'].tolist()
+            # 格式化月份数据
+            months = []
             counts = trend_result['count'].tolist()
+            
+            for _, row in trend_result.iterrows():
+                month_str = f"{int(row['year'])}-{int(row['month']):02d}"
+                months.append(month_str)
             
             return jsonify({
                 'status': 'success',
@@ -679,24 +736,40 @@ def api_charts(chart_type):
             start_time = end_time - timedelta(days=days)
             
             alerts = db.get_alerts_by_timerange(start_time, end_time)
-            if alerts.empty or len(alerts) < 10:
+            if alerts.empty:
+                # 如果没有数据，返回空的图表数据而不是错误
                 return jsonify({
-                    'status': 'warning',
-                    'message': f'告警数据不足，无法生成散点图，当前只有 {len(alerts)} 条告警'
+                    'status': 'success',
+                    'data': {
+                        'title': '告警数据模型分布',
+                        'points': [],
+                        'centers': [],
+                        'zero_day_count': 0,
+                        'total_alerts': 0
+                    }
                 })
+            
+            # 获取同时间范围内的零日攻击记录
+            zero_day_query = f"""
+            SELECT id, zero_day_score 
+            FROM zero_day_alerts 
+            WHERE event_time >= '{start_time.strftime('%Y-%m-%d %H:%M:%S')}' 
+            AND event_time <= '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
+            """
+            zero_day_result = db.query_to_dataframe(zero_day_query)
+            
+            # 创建零日攻击ID到分数的映射
+            zero_day_map = {}
+            if zero_day_result is not None and not zero_day_result.empty:
+                for _, row in zero_day_result.iterrows():
+                    zero_day_map[int(row['id'])] = float(row['zero_day_score'])
+                app.logger.info(f"找到 {len(zero_day_map)} 个已确认的零日攻击记录")
             
             # 预处理数据
             X, _ = global_models["preprocessor"].preprocess(alerts, fit=False)
             
             # 使用IF模型预测异常分数
             anomaly_scores = global_models["if_model"].predict(X)
-            
-            # 使用KMEANS模型获取聚类标签
-            if hasattr(global_models["kmeans_model"].model, 'predict'):
-                cluster_labels = global_models["kmeans_model"].model.predict(X)
-            else:
-                # 如果没有predict方法，可能是因为模型类型不同
-                cluster_labels = np.zeros(len(X))
             
             # 使用零日检测器获取零日分数
             zero_day_scores = global_models["detector"].predict(X)
@@ -712,26 +785,41 @@ def api_charts(chart_type):
                 
             X_reduced = reducer.fit_transform(X)
             
+            # 为聚类使用降维后的数据
+            from sklearn.cluster import KMeans
+            kmeans_viz = KMeans(n_clusters=min(3, len(X_reduced)), random_state=42, n_init=10)
+            cluster_labels = kmeans_viz.fit_predict(X_reduced)
+            
             # 生成纯数据结构
             scatter_data = []
             for i in range(len(X_reduced)):
+                alert_id = int(alerts.iloc[i]['id']) if 'id' in alerts.columns else i
+                
+                # 如果这个告警ID在零日攻击记录中，使用保存的分数
+                if alert_id in zero_day_map:
+                    final_zero_day_score = zero_day_map[alert_id]
+                    app.logger.info(f"告警ID {alert_id} 使用已保存的零日分数: {final_zero_day_score}")
+                else:
+                    final_zero_day_score = float(zero_day_scores[i])
+                
                 scatter_data.append({
                     'x': float(X_reduced[i, 0]),
                     'y': float(X_reduced[i, 1]),
                     'anomaly_score': float(anomaly_scores[i]),
                     'cluster': int(cluster_labels[i]),
-                    'zero_day_score': float(zero_day_scores[i])
+                    'zero_day_score': final_zero_day_score,
+                    'alert_id': alert_id,
+                    'is_confirmed_zero_day': alert_id in zero_day_map
                 })
             
             # 聚类中心
             centers_data = []
-            if hasattr(global_models["kmeans_model"].model, 'cluster_centers_'):
-                centers = global_models["kmeans_model"].model.cluster_centers_
-                centers_reduced = reducer.transform(centers)
-                for i in range(len(centers_reduced)):
+            if hasattr(kmeans_viz, 'cluster_centers_'):
+                centers = kmeans_viz.cluster_centers_
+                for i in range(len(centers)):
                     centers_data.append({
-                        'x': float(centers_reduced[i, 0]),
-                        'y': float(centers_reduced[i, 1]),
+                        'x': float(centers[i, 0]),
+                        'y': float(centers[i, 1]),
                         'cluster': i
                     })
             
@@ -740,7 +828,9 @@ def api_charts(chart_type):
                 'data': {
                     'title': '告警数据模型分布',
                     'points': scatter_data,
-                    'centers': centers_data
+                    'centers': centers_data,
+                    'zero_day_count': len(zero_day_map),
+                    'total_alerts': len(alerts)
                 }
             })
             
@@ -862,11 +952,120 @@ def api_charts(chart_type):
             return jsonify({
                 'status': 'success',
                 'data': {
-                    'title': '内网攻击源IP统计',
+                    'title': '攻击源IP统计',
                     'ips': ips,
                     'counts': counts,
                     'items': ip_data
                 }
+            })
+        elif chart_type == 'daily_alert_comparison':
+            # 获取每日告警对比数据：总告警数量、异常告警数量、零日告警数量
+            days = int(request.args.get('days', 30))  # 默认30天
+            
+            # 生成日期范围
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=days)
+            
+            # 查询每日总告警数量
+            daily_alerts_query = f"""
+            SELECT DATE(event_time) as date, COUNT(*) as total_count 
+            FROM {db.alerts_table} 
+            WHERE DATE(event_time) >= '{start_date}' AND DATE(event_time) <= '{end_date}'
+            GROUP BY DATE(event_time)
+            ORDER BY date
+            """
+            daily_alerts_result = db.query_to_dataframe(daily_alerts_query)
+            
+            # 查询每日基线数据数量（用于计算异常告警数量）
+            baseline_alerts_query = f"""
+            SELECT DATE(event_time) as date, COUNT(*) as baseline_count 
+            FROM baseline_alerts 
+            WHERE DATE(event_time) >= '{start_date}' AND DATE(event_time) <= '{end_date}'
+            GROUP BY DATE(event_time)
+            ORDER BY date
+            """
+            baseline_alerts_result = db.query_to_dataframe(baseline_alerts_query)
+            
+            # 查询每日零日攻击数量
+            zero_day_alerts_query = f"""
+            SELECT DATE(event_time) as date, COUNT(*) as zero_day_count 
+            FROM zero_day_alerts 
+            WHERE DATE(event_time) >= '{start_date}' AND DATE(event_time) <= '{end_date}'
+            GROUP BY DATE(event_time)
+            ORDER BY date
+            """
+            zero_day_alerts_result = db.query_to_dataframe(zero_day_alerts_query)
+            
+            # 生成完整的日期范围
+            date_range = []
+            current_date = start_date
+            while current_date <= end_date:
+                date_range.append(current_date.strftime('%Y-%m-%d'))
+                current_date += timedelta(days=1)
+            
+            # 创建数据字典，便于查找
+            daily_data = {date: 0 for date in date_range}
+            baseline_data = {date: 0 for date in date_range}
+            zero_day_data = {date: 0 for date in date_range}
+            
+            # 填充每日告警数据
+            if daily_alerts_result is not None and not daily_alerts_result.empty:
+                for _, row in daily_alerts_result.iterrows():
+                    if pd.notna(row['date']):
+                        date_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])
+                        if date_str in daily_data:
+                            daily_data[date_str] = int(row['total_count'])
+            
+            # 填充基线数据
+            if baseline_alerts_result is not None and not baseline_alerts_result.empty:
+                for _, row in baseline_alerts_result.iterrows():
+                    if pd.notna(row['date']):
+                        date_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])
+                        if date_str in baseline_data:
+                            baseline_data[date_str] = int(row['baseline_count'])
+            
+            # 填充零日攻击数据
+            if zero_day_alerts_result is not None and not zero_day_alerts_result.empty:
+                for _, row in zero_day_alerts_result.iterrows():
+                    if pd.notna(row['date']):
+                        date_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])
+                        if date_str in zero_day_data:
+                            zero_day_data[date_str] = int(row['zero_day_count'])
+            
+            # 计算异常告警数量（总告警数量 - 基线筛选后的数量）
+            anomaly_data = {}
+            for date in date_range:
+                anomaly_data[date] = max(0, daily_data[date] - baseline_data[date])
+            
+            # 构造图表数据
+            chart_data = {
+                'title': f'最近{days}天告警对比分析',
+                'xAxis': date_range,
+                'series': [
+                    {
+                        'name': '总告警数量',
+                        'data': [daily_data[date] for date in date_range],
+                        'type': 'line',
+                        'color': '#4ecdc4'  # 青绿色
+                    },
+                    {
+                        'name': '异常告警数量',
+                        'data': [anomaly_data[date] for date in date_range],
+                        'type': 'line',
+                        'color': '#fdcb6e'  # 黄色
+                    },
+                    {
+                        'name': '零日告警数量',
+                        'data': [zero_day_data[date] for date in date_range],
+                        'type': 'line',
+                        'color': '#ff6b6b'  # 红色
+                    }
+                ]
+            }
+            
+            return jsonify({
+                'status': 'success',
+                'data': chart_data
             })
         else:
             return jsonify({
@@ -874,53 +1073,60 @@ def api_charts(chart_type):
                 'message': f'未知的图表类型: {chart_type}'
             }), 400
     except Exception as e:
-        app.logger.error(f"生成图表失败: {e}")
+        app.logger.error(f"获取图表数据失败: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': f'获取图表数据失败: {str(e)}'
         }), 500
 
 # API路由：获取模型和数据更新时间
 @app.route('/api/system/versions', methods=['GET'])
 def api_system_versions():
     try:
+        app.logger.info("开始获取系统版本信息...")
+        
         # 获取各组件的最后更新时间
+        app.logger.info("获取基线数据更新时间...")
         baseline_data_time = db.get_last_update_time('baseline_data')
+        app.logger.info(f"基线数据更新时间: {baseline_data_time}")
+        
+        app.logger.info("获取基线模型更新时间...")
         baseline_model_time = db.get_last_update_time('baseline_model')
+        app.logger.info(f"基线模型更新时间: {baseline_model_time}")
+        
+        app.logger.info("获取零日模型更新时间...")
         zero_day_model_time = db.get_last_update_time('zero_day_model')
+        app.logger.info(f"零日模型更新时间: {zero_day_model_time}")
+        
+        app.logger.info("获取最后检测时间...")
         last_detection_time = db.get_last_update_time('zero_day_detection')
-        
-        # 获取模型文件信息
-        model_files = {}
-        model_dir = os.path.join(current_dir, "models")
-        
-        for model_file in ['preprocessor.joblib', 'baseline_isolation_forest.joblib', 
-                          'baseline_kmeans.joblib', 'zero_day_detector.joblib']:
-            file_path = os.path.join(model_dir, model_file)
-            if os.path.exists(file_path):
-                model_files[model_file] = {
-                    'size': os.path.getsize(file_path),
-                    'modified': datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
-                }
-            else:
-                model_files[model_file] = None
+        app.logger.info(f"最后检测时间: {last_detection_time}")
         
         # 获取数据统计
         baseline_count = 0
         zero_day_count = 0
         
         try:
+            app.logger.info("获取基线数据统计...")
             baseline_query = "SELECT COUNT(*) as count FROM baseline_alerts"
             baseline_result = db.query_to_dataframe(baseline_query)
-            baseline_count = int(baseline_result['count'].iloc[0]) if not baseline_result.empty else 0
+            baseline_count = int(baseline_result['count'].iloc[0]) if baseline_result is not None and not baseline_result.empty else 0
+            app.logger.info(f"基线数据统计: {baseline_count}")
             
+            app.logger.info("获取零日攻击统计...")
             zeroday_query = "SELECT COUNT(*) as count FROM zero_day_alerts"
             zeroday_result = db.query_to_dataframe(zeroday_query)
-            zero_day_count = int(zeroday_result['count'].iloc[0]) if not zeroday_result.empty else 0
+            zero_day_count = int(zeroday_result['count'].iloc[0]) if zeroday_result is not None and not zeroday_result.empty else 0
+            app.logger.info(f"零日攻击统计: {zero_day_count}")
         except Exception as e:
             app.logger.error(f"获取数据统计失败: {e}")
+            import traceback
+            app.logger.error(traceback.format_exc())
         
-        return jsonify({
+        app.logger.info("构建响应数据...")
+        response_data = {
             'status': 'success',
             'versions': {
                 'baseline_data': {
@@ -938,11 +1144,15 @@ def api_system_versions():
                     'count': zero_day_count
                 }
             },
-            'model_files': model_files,
             'system_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        })
+        }
+        
+        app.logger.info(f"系统版本信息获取成功: {response_data}")
+        return jsonify(response_data)
     except Exception as e:
         app.logger.error(f"获取系统版本信息失败: {e}")
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({
             'status': 'error',
             'message': str(e)

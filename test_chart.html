@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图表测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+<body>
+    <h1>图表测试页面</h1>
+    
+    <div>
+        <label for="days-select">选择天数：</label>
+        <select id="days-select">
+            <option value="1">1天</option>
+            <option value="3">3天</option>
+            <option value="7" selected>7天</option>
+            <option value="14">14天</option>
+            <option value="30">30天</option>
+        </select>
+        <button onclick="loadChart()">加载图表</button>
+    </div>
+    
+    <div id="chart" style="width: 800px; height: 600px; border: 1px solid #ccc; margin: 20px 0;"></div>
+    
+    <div id="debug-info" style="background: #f5f5f5; padding: 10px; margin: 20px 0; font-family: monospace; white-space: pre-wrap;"></div>
+
+    <script>
+        async function loadChart() {
+            const days = document.getElementById('days-select').value;
+            const debugDiv = document.getElementById('debug-info');
+            
+            try {
+                debugDiv.textContent = `正在加载 ${days} 天的数据...`;
+                
+                const response = await fetch(`http://localhost:5000/api/charts/model_distribution?days=${days}`);
+                const result = await response.json();
+                
+                debugDiv.textContent = `API响应:\n${JSON.stringify(result, null, 2)}`;
+                
+                if (result.status === 'success') {
+                    const chartDom = document.getElementById('chart');
+                    const myChart = echarts.init(chartDom);
+                    
+                    // 简单的散点图配置
+                    const option = {
+                        title: {
+                            text: `${result.data.title} (${days}天)`,
+                            left: 'center'
+                        },
+                        tooltip: {
+                            trigger: 'item'
+                        },
+                        xAxis: {
+                            type: 'value',
+                            name: 'X轴'
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: 'Y轴'
+                        },
+                        series: [{
+                            name: '数据点',
+                            type: 'scatter',
+                            data: result.data.points.map(p => [p.x, p.y]),
+                            symbolSize: 8
+                        }]
+                    };
+                    
+                    myChart.setOption(option);
+                    debugDiv.textContent += `\n\n图表已加载，数据点数量: ${result.data.points.length}`;
+                } else {
+                    debugDiv.textContent += `\n\n错误: ${result.message || '未知错误'}`;
+                }
+            } catch (error) {
+                debugDiv.textContent = `请求失败: ${error.message}`;
+            }
+        }
+        
+        // 页面加载时自动加载图表
+        window.onload = function() {
+            loadChart();
+        };
+    </script>
+</body>
+</html> 

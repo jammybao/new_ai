@@ -181,12 +181,12 @@ def generate_report(classified_df, save_path=None):
 
 def update_baseline_data(db, days=None, min_score=None, exclude_categories=None):
     """
-    更新基线数据 - 将低风险/正常告警添加到基线数据中
+    更新基线数据 - 使用基线模型将正常告警添加到基线数据中
     
     参数：
     - db: 数据库连接器
     - days: 过滤最近几天的数据，None表示使用配置文件中的FILTER_DAYS
-    - min_score: 最小阈值分数，低于此分数的告警被视为正常，None表示使用配置文件中的THRESHOLD_SCORE
+    - min_score: 异常分数阈值，低于此分数的告警被视为正常，None表示使用配置文件中的THRESHOLD_SCORE
     - exclude_categories: 要排除的告警类别列表
     
     返回：
@@ -202,7 +202,14 @@ def update_baseline_data(db, days=None, min_score=None, exclude_categories=None)
     if exclude_categories is None:
         exclude_categories = ["严重漏洞", "勒索软件", "数据泄露"]
     
-    print(f"配置参数: 时间窗口={days}天, 阈值分数={min_score}, 排除类别={exclude_categories}")
+    print(f"配置参数: 时间窗口={days}天, 异常阈值={min_score}, 排除类别={exclude_categories}")
+    
+    # 加载基线模型
+    print("正在加载基线模型...")
+    preprocessor, if_model, kmeans_model = load_models()
+    if preprocessor is None or if_model is None or kmeans_model is None:
+        print("错误: 基线模型加载失败，无法进行智能过滤")
+        return 0
     
     # 获取已有的基线数据ID列表，用于过滤重复数据
     try:
@@ -214,12 +221,10 @@ def update_baseline_data(db, days=None, min_score=None, exclude_categories=None)
         print(f"获取基线数据ID失败: {e}")
         existing_ids = set()
     
-    # 查询符合条件的告警数据
+    # 查询最近的告警数据（不使用简单的threat_level条件）
     query = f"""
     SELECT * FROM ids_ai 
-    WHERE 
-        threat_level < {min_score * 10} AND 
-        created_at >= DATE_SUB(NOW(), INTERVAL {days} DAY)
+    WHERE created_at >= DATE_SUB(NOW(), INTERVAL {days} DAY)
     """
     
     if exclude_categories and len(exclude_categories) > 0:
@@ -232,21 +237,44 @@ def update_baseline_data(db, days=None, min_score=None, exclude_categories=None)
         print("没有找到符合条件的告警数据")
         return 0
     
-    print(f"找到 {len(alerts_df)} 条潜在基线数据")
+    print(f"找到 {len(alerts_df)} 条候选告警数据")
     
     # 过滤掉已存在的ID
     new_alerts_df = alerts_df[~alerts_df['id'].isin(existing_ids)]
-    print(f"过滤后剩余 {len(new_alerts_df)} 条新基线数据")
+    print(f"过滤后剩余 {len(new_alerts_df)} 条新告警数据")
     
     if new_alerts_df.empty:
-        print("没有新的基线数据需要添加")
+        print("没有新的告警数据需要处理")
         return 0
     
-    # 保存新的基线数据
+    # 使用基线模型对告警进行分类
+    print("正在使用基线模型分类告警...")
+    classified_df = classify_alerts(new_alerts_df, preprocessor, if_model, kmeans_model, min_score)
+    
+    if classified_df is None or classified_df.empty:
+        print("告警分类失败")
+        return 0
+    
+    # 选择被模型判定为正常的告警（非异常）
+    normal_alerts = classified_df[~classified_df['is_anomaly']]
+    print(f"基线模型识别出 {len(normal_alerts)} 条正常告警，{len(classified_df) - len(normal_alerts)} 条异常告警")
+    
+    if normal_alerts.empty:
+        print("没有正常告警需要添加到基线数据")
+        return 0
+    
+    # 保存正常告警到基线数据
     try:
-        db.save_results(new_alerts_df, "baseline_alerts")
-        print(f"成功保存 {len(new_alerts_df)} 条基线数据")
-        return len(new_alerts_df)
+        # 只保存原始字段，不包含模型预测结果
+        original_columns = [col for col in normal_alerts.columns 
+                          if col not in ['isolation_forest_score', 'kmeans_score', 
+                                       'isolation_forest_anomaly', 'kmeans_anomaly', 
+                                       'is_anomaly', 'anomaly_score']]
+        baseline_data = normal_alerts[original_columns]
+        
+        db.save_results(baseline_data, "baseline_alerts")
+        print(f"成功保存 {len(baseline_data)} 条基线数据")
+        return len(baseline_data)
     except Exception as e:
         print(f"保存基线数据失败: {e}")
         return 0

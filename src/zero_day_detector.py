@@ -212,24 +212,29 @@ class ZeroDayDetector:
         参数:
             save_path: 图像保存路径
         """
-        if self.history is None:
-            raise ValueError("模型尚未训练")
-        
-        plt.figure(figsize=(10, 6))
-        plt.plot(self.history.history['loss'], label='训练损失')
-        plt.plot(self.history.history['val_loss'], label='验证损失')
-        plt.title('自动编码器训练损失')
-        plt.xlabel('轮次')
-        plt.ylabel('损失')
-        plt.legend()
-        plt.grid(True, linestyle='--', alpha=0.7)
-        
-        if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            plt.savefig(save_path)
-            plt.close()
-        else:
-            plt.show()
+        try:
+            if self.history is None:
+                raise ValueError("模型尚未训练")
+            
+            plt.figure(figsize=(10, 6))
+            plt.plot(self.history.history['loss'], label='训练损失')
+            plt.plot(self.history.history['val_loss'], label='验证损失')
+            plt.title('自动编码器训练损失')
+            plt.xlabel('轮次')
+            plt.ylabel('损失')
+            plt.legend()
+            plt.grid(True, linestyle='--', alpha=0.7)
+            
+            if save_path:
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                plt.savefig(save_path)
+        except Exception as e:
+            print(f"可视化损失曲线时出错: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # 确保始终关闭图形
+            plt.close('all')
     
     def visualize_reconstruction(self, X, n_samples=5, save_path=None):
         """
@@ -240,45 +245,50 @@ class ZeroDayDetector:
             n_samples: 要可视化的样本数量
             save_path: 图像保存路径
         """
-        if self.model is None:
-            raise ValueError("模型尚未训练")
-        
-        # 检查输入是否为稀疏矩阵并转换
-        is_sparse = sp.issparse(X)
-        if is_sparse:
-            X = X.toarray()
-        
-        # 选择样本并获取重构
-        indices = np.random.choice(X.shape[0], min(n_samples, X.shape[0]), replace=False)
-        X_sample = X[indices]
-        X_reconstructed = self.model.predict(X_sample)
-        
-        # 计算每个样本的重构误差
-        reconstruction_errors = np.mean(np.power(X_sample - X_reconstructed, 2), axis=1)
-        
-        # 可视化
-        plt.figure(figsize=(15, 5 * n_samples))
-        for i in range(len(indices)):
-            # 原始数据
-            plt.subplot(n_samples, 2, i*2 + 1)
-            plt.plot(X_sample[i])
-            plt.title(f'原始特征 (样本 {indices[i]})')
-            plt.grid(True, linestyle='--', alpha=0.7)
+        try:
+            if self.model is None:
+                raise ValueError("模型尚未训练")
             
-            # 重构数据
-            plt.subplot(n_samples, 2, i*2 + 2)
-            plt.plot(X_reconstructed[i])
-            plt.title(f'重构特征 (误差: {reconstruction_errors[i]:.4f})')
-            plt.grid(True, linestyle='--', alpha=0.7)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            plt.savefig(save_path)
-            plt.close()
-        else:
-            plt.show()
+            # 检查输入是否为稀疏矩阵并转换
+            is_sparse = sp.issparse(X)
+            if is_sparse:
+                X = X.toarray()
+            
+            # 选择样本并获取重构
+            indices = np.random.choice(X.shape[0], min(n_samples, X.shape[0]), replace=False)
+            X_sample = X[indices]
+            X_reconstructed = self.model.predict(X_sample)
+            
+            # 计算每个样本的重构误差
+            reconstruction_errors = np.mean(np.power(X_sample - X_reconstructed, 2), axis=1)
+            
+            # 可视化
+            plt.figure(figsize=(15, 5 * n_samples))
+            for i in range(len(indices)):
+                # 原始数据
+                plt.subplot(n_samples, 2, i*2 + 1)
+                plt.plot(X_sample[i])
+                plt.title(f'原始特征 (样本 {indices[i]})')
+                plt.grid(True, linestyle='--', alpha=0.7)
+                
+                # 重构数据
+                plt.subplot(n_samples, 2, i*2 + 2)
+                plt.plot(X_reconstructed[i])
+                plt.title(f'重构特征 (误差: {reconstruction_errors[i]:.4f})')
+                plt.grid(True, linestyle='--', alpha=0.7)
+            
+            plt.tight_layout()
+            
+            if save_path:
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                plt.savefig(save_path)
+        except Exception as e:
+            print(f"可视化重构效果时出错: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # 确保始终关闭图形
+            plt.close('all')
     
     @classmethod
     def load(cls, path="models/zero_day_detector.joblib"):
