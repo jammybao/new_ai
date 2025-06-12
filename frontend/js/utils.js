@@ -179,16 +179,22 @@ function buildChartOption(type, data) {
         },
         xAxis: {
           type: "category",
-          data: data.xAxis || [],
+          data: data.xAxisData || [],
         },
         yAxis: {
           type: "value",
         },
         series: [
           {
-            name: data.title || "数据",
+            name:
+              data.seriesData && data.seriesData[0]
+                ? data.seriesData[0].name
+                : "数据",
             type: "bar",
-            data: data.series || [],
+            data:
+              data.seriesData && data.seriesData[0]
+                ? data.seriesData[0].data
+                : [],
             itemStyle: {
               color: "#3aa1ff",
             },
@@ -198,6 +204,30 @@ function buildChartOption(type, data) {
       break;
 
     case "pie":
+      // 为威胁等级分布设置特定颜色
+      let pieColors = ["#4ecdc4", "#ff9f43", "#ff6b6b", "#5865f2"]; // 默认颜色
+
+      if (data.title && data.title.includes("威胁等级")) {
+        // 威胁等级专用颜色映射
+        const threatLevelColors = {
+          高危: "#ff4757", // 红色
+          中危: "#ffa502", // 橙色
+          低危: "#2ed573", // 绿色
+          未知: "#747d8c", // 灰色
+        };
+
+        // 为数据项设置对应颜色
+        if (data.seriesData && Array.isArray(data.seriesData)) {
+          data.seriesData.forEach((item) => {
+            if (threatLevelColors[item.name]) {
+              item.itemStyle = {
+                color: threatLevelColors[item.name],
+              };
+            }
+          });
+        }
+      }
+
       option = {
         title: {
           text: data.title || "饼图",
@@ -210,7 +240,7 @@ function buildChartOption(type, data) {
         legend: {
           orient: "vertical",
           left: "left",
-          data: data.categories || [],
+          data: data.seriesData ? data.seriesData.map((item) => item.name) : [],
         },
         series: [
           {
@@ -218,7 +248,7 @@ function buildChartOption(type, data) {
             type: "pie",
             radius: "55%",
             center: ["50%", "60%"],
-            data: data.series || [],
+            data: data.seriesData || [],
             emphasis: {
               itemStyle: {
                 shadowBlur: 10,
@@ -241,7 +271,7 @@ function buildChartOption(type, data) {
         },
         xAxis: {
           type: "category",
-          data: data.xAxis || [],
+          data: data.xAxisData || [],
           name: "类别",
         },
         yAxis: {
@@ -252,7 +282,10 @@ function buildChartOption(type, data) {
           {
             name: data.title || "数据",
             type: "line",
-            data: data.series || [],
+            data:
+              data.seriesData && data.seriesData[0]
+                ? data.seriesData[0].data
+                : [],
             smooth: true,
             symbol: "circle",
             symbolSize: 8,
@@ -287,11 +320,92 @@ function buildChartOption(type, data) {
       };
       break;
 
+    case "heatmap":
+      option = {
+        title: {
+          text: data.title || "热力图",
+          left: "center",
+        },
+        tooltip: {
+          position: "top",
+          formatter: function (params) {
+            const hour = data.xAxisData[params.data[0]];
+            const day = data.yAxisData[params.data[1]];
+            const count = params.data[2];
+            return `${day} ${hour}<br/>异常告警: ${count} 次`;
+          },
+        },
+        grid: {
+          height: "50%",
+          top: "15%",
+        },
+        xAxis: {
+          type: "category",
+          data: data.xAxisData || [],
+          splitArea: {
+            show: true,
+          },
+          axisLabel: {
+            interval: 1, // 显示所有小时标签
+            rotate: 45,
+          },
+        },
+        yAxis: {
+          type: "category",
+          data: data.yAxisData || [],
+          splitArea: {
+            show: true,
+          },
+        },
+        visualMap: {
+          min: 0,
+          max: data.maxCount || 100,
+          calculable: true,
+          orient: "horizontal",
+          left: "center",
+          bottom: "10%",
+          inRange: {
+            color: [
+              "#313695",
+              "#4575b4",
+              "#74add1",
+              "#abd9e9",
+              "#e0f3f8",
+              "#fee090",
+              "#fdae61",
+              "#f46d43",
+              "#d73027",
+              "#a50026",
+            ],
+          },
+        },
+        series: [
+          {
+            name: "异常告警数量",
+            type: "heatmap",
+            data: data.seriesData || [],
+            label: {
+              show: true,
+              formatter: function (params) {
+                return params.data[2] > 0 ? params.data[2] : "";
+              },
+            },
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 10,
+                shadowColor: "rgba(0, 0, 0, 0.5)",
+              },
+            },
+          },
+        ],
+      };
+      break;
+
     case "multiLine":
       // 多线对比图表
       const multiLineSeries = [];
-      if (data.series && Array.isArray(data.series)) {
-        data.series.forEach((seriesData, index) => {
+      if (data.seriesData && Array.isArray(data.seriesData)) {
+        data.seriesData.forEach((seriesData, index) => {
           // 根据数据名称设置对应颜色
           let color = "#4ecdc4"; // 默认青绿色
           if (
@@ -357,7 +471,7 @@ function buildChartOption(type, data) {
         },
         xAxis: {
           type: "category",
-          data: data.xAxis || [],
+          data: data.xAxisData || [],
           name: "日期",
           nameLocation: "middle",
           nameGap: 25,
@@ -419,7 +533,7 @@ function buildChartOption(type, data) {
         },
         yAxis: {
           type: "category",
-          data: data.ips || [],
+          data: data.yAxisData || [],
           name: "类别",
           axisLabel: {
             interval: 0,
@@ -428,14 +542,23 @@ function buildChartOption(type, data) {
         },
         series: [
           {
-            name: data.title || "数据",
+            name:
+              data.seriesData && data.seriesData[0]
+                ? data.seriesData[0].name
+                : "数据",
             type: "bar",
-            data: data.counts || [],
+            data:
+              data.seriesData && data.seriesData[0]
+                ? data.seriesData[0].data
+                : [],
             itemStyle: {
               color: function (params) {
                 // 创建一个渐变色，数值越大颜色越深
                 const colorList = ["#91cc75", "#fac858", "#ee6666"];
-                const counts = data.counts || [];
+                const counts =
+                  data.seriesData && data.seriesData[0]
+                    ? data.seriesData[0].data
+                    : [];
                 const max = Math.max(...counts);
                 const ratio = params.value / max;
                 if (ratio < 0.33) return colorList[0];
@@ -450,241 +573,6 @@ function buildChartOption(type, data) {
             },
           },
         ],
-      };
-      break;
-
-    case "scatter":
-      // 构建散点图配置
-      const points = data.points || [];
-      const centers = data.centers || [];
-
-      // 计算合理的坐标轴范围（排除极端值）
-      const allX = points.map((p) => p.x).concat(centers.map((c) => c.x));
-      const allY = points.map((p) => p.y).concat(centers.map((c) => c.y));
-
-      // 使用四分位数方法过滤极端值
-      const sortedX = [...allX].sort((a, b) => a - b);
-      const sortedY = [...allY].sort((a, b) => a - b);
-
-      const q1X = sortedX[Math.floor(sortedX.length * 0.25)];
-      const q3X = sortedX[Math.floor(sortedX.length * 0.75)];
-      const iqrX = q3X - q1X;
-      const minX = Math.max(Math.min(...allX), q1X - 1.5 * iqrX);
-      const maxX = Math.min(Math.max(...allX), q3X + 1.5 * iqrX);
-
-      const q1Y = sortedY[Math.floor(sortedY.length * 0.25)];
-      const q3Y = sortedY[Math.floor(sortedY.length * 0.75)];
-      const iqrY = q3Y - q1Y;
-      const minY = Math.max(Math.min(...allY), q1Y - 1.5 * iqrY);
-      const maxY = Math.min(Math.max(...allY), q3Y + 1.5 * iqrY);
-
-      // 按聚类分组数据
-      const clusterGroups = {};
-      points.forEach((point) => {
-        const cluster = point.cluster;
-        if (!clusterGroups[cluster]) {
-          clusterGroups[cluster] = [];
-        }
-        clusterGroups[cluster].push([
-          point.x,
-          point.y,
-          point.anomaly_score,
-          point.cluster,
-          point.zero_day_score,
-          point.anomaly_score < 0.5 ? "异常" : "正常", // 异常标识
-          point.zero_day_score > 0.5 ? "疑似零日攻击" : "常规告警", // 零日攻击标识
-          point.alert_id || "N/A", // 告警ID
-          point.is_confirmed_zero_day ? "已确认零日攻击" : "未确认", // 确认状态
-        ]);
-      });
-
-      // 为每个聚类创建系列
-      const scatterSeries = [];
-      const clusterColors = [
-        "#1f77b4",
-        "#ff7f0e",
-        "#2ca02c",
-        "#d62728",
-        "#9467bd",
-        "#8c564b",
-      ];
-
-      Object.keys(clusterGroups).forEach((cluster, index) => {
-        const clusterData = clusterGroups[cluster];
-        const color = clusterColors[index % clusterColors.length];
-
-        scatterSeries.push({
-          name: `聚类 ${cluster}`,
-          type: "scatter",
-          symbolSize: function (data) {
-            // 基于零日分数和异常分数调整气泡大小
-            const zeroScore = data[4];
-            const anomalyScore = Math.abs(data[2]);
-            return Math.max(
-              8,
-              Math.min(25, zeroScore * 15 + anomalyScore * 10)
-            );
-          },
-          itemStyle: {
-            color: function (params) {
-              const zeroScore = params.value[4];
-              const anomalyScore = params.value[2];
-              const isConfirmed = params.value[8] === "已确认零日攻击";
-
-              // 已确认的零日攻击用深红色
-              if (isConfirmed) {
-                return "#d32f2f";
-              }
-              // 零日攻击用红色系（零日分数 > 0.5）
-              else if (zeroScore > 0.5) {
-                return "#ff4d4f";
-              }
-              // 异常但非零日攻击用橙色系（异常分数较低，表示异常）
-              else if (anomalyScore < 0.5) {
-                return "#fa8c16";
-              }
-              // 正常数据用绿色系（异常分数较高，表示正常）
-              else {
-                return "#52c41a";
-              }
-            },
-            opacity: 0.8,
-          },
-          data: clusterData,
-        });
-      });
-
-      // 添加聚类中心
-      if (centers.length > 0) {
-        const centersData = centers.map((center) => [center.x, center.y]);
-        scatterSeries.push({
-          name: "聚类中心",
-          type: "scatter",
-          symbolSize: 25, // 增加聚类中心的大小
-          symbol: "diamond",
-          itemStyle: {
-            color: "#000",
-            borderColor: "#fff",
-            borderWidth: 3, // 增加边框宽度
-          },
-          emphasis: {
-            itemStyle: {
-              shadowBlur: 10,
-              shadowColor: "#000",
-              shadowOffsetX: 2,
-              shadowOffsetY: 2,
-            },
-          },
-          data: centersData,
-          z: 10, // 确保聚类中心在最上层
-        });
-      }
-
-      option = {
-        title: {
-          text: data.title || "AI告警数据聚类分析",
-          subtext: "颜色表示威胁等级，大小表示异常程度",
-          left: "center",
-        },
-        tooltip: {
-          formatter: function (params) {
-            if (params.seriesName === "聚类中心") {
-              return `聚类中心<br/>坐标: (${params.value[0].toFixed(
-                2
-              )}, ${params.value[1].toFixed(2)})`;
-            }
-
-            const anomalyScore = params.value[2];
-            const cluster = params.value[3];
-            const zeroScore = params.value[4];
-            const anomalyType = params.value[5];
-            const threatType = params.value[6];
-            const alertId = params.value[7];
-            const confirmStatus = params.value[8];
-
-            return `
-              <div style="padding: 8px;">
-                <div><strong>${threatType}</strong></div>
-                <div>确认状态: <strong>${confirmStatus}</strong></div>
-                <div>告警ID: ${alertId}</div>
-                <div>聚类组: ${cluster}</div>
-                <div>异常状态: ${anomalyType}</div>
-                <div>异常分数: ${anomalyScore.toFixed(3)}</div>
-                <div>零日分数: ${zeroScore.toFixed(3)}</div>
-                <div>坐标: (${params.value[0].toFixed(
-                  2
-                )}, ${params.value[1].toFixed(2)})</div>
-              </div>
-            `;
-          },
-          backgroundColor: "rgba(50, 50, 50, 0.9)",
-          borderColor: "#ccc",
-          textStyle: {
-            color: "#fff",
-          },
-        },
-        legend: {
-          data: scatterSeries.map((s) => s.name),
-          top: "bottom",
-          left: "center",
-        },
-        grid: {
-          left: "10%",
-          right: "10%",
-          bottom: "15%",
-          top: "15%",
-          containLabel: true,
-        },
-        xAxis: {
-          type: "value",
-          name: "主成分1 (数据特征降维)",
-          nameLocation: "middle",
-          nameGap: 30,
-          min: minX - (maxX - minX) * 0.1, // 添加10%的边距
-          max: maxX + (maxX - minX) * 0.1,
-          axisLine: {
-            lineStyle: {
-              color: "#666",
-            },
-          },
-        },
-        yAxis: {
-          type: "value",
-          name: "主成分2 (数据特征降维)",
-          nameLocation: "middle",
-          nameGap: 40,
-          min: minY - (maxY - minY) * 0.1, // 添加10%的边距
-          max: maxY + (maxY - minY) * 0.1,
-          axisLine: {
-            lineStyle: {
-              color: "#666",
-            },
-          },
-        },
-        series: scatterSeries,
-        // 添加数据缩放功能
-        dataZoom: [
-          {
-            type: "inside",
-            xAxisIndex: 0,
-          },
-          {
-            type: "inside",
-            yAxisIndex: 0,
-          },
-        ],
-        // 添加工具箱
-        toolbox: {
-          feature: {
-            dataZoom: {
-              yAxisIndex: "none",
-            },
-            restore: {},
-            saveAsImage: {},
-          },
-          right: 20,
-          top: 20,
-        },
       };
       break;
 

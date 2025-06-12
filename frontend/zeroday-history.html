@@ -301,39 +301,35 @@
           endDate: endDate
         });
 
-        if (result.status === 'success') {
-          // 更新总记录数和总页数
-          totalRecords = result.total;
-          totalPages = Math.ceil(totalRecords / pageSize);
+        // 更新总记录数和总页数
+        totalRecords = result.total;
+        totalPages = Math.ceil(totalRecords / pageSize);
 
-          // 更新分页信息
-          document.getElementById('total-records').textContent = `共 ${totalRecords} 条记录`;
-          document.getElementById('page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
-          document.getElementById('current-page-input').value = currentPage;
-          document.getElementById('current-page-input').max = totalPages;
+        // 更新分页信息
+        document.getElementById('total-records').textContent = `共 ${totalRecords} 条记录`;
+        document.getElementById('page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+        document.getElementById('current-page-input').value = currentPage;
+        document.getElementById('current-page-input').max = totalPages;
 
-          // 禁用或启用分页按钮
-          document.getElementById('first-page').disabled = currentPage <= 1;
-          document.getElementById('prev-page').disabled = currentPage <= 1;
-          document.getElementById('next-page').disabled = currentPage >= totalPages;
-          document.getElementById('last-page').disabled = currentPage >= totalPages;
-          document.getElementById('go-page').disabled = totalPages <= 1;
+        // 禁用或启用分页按钮
+        document.getElementById('first-page').disabled = currentPage <= 1;
+        document.getElementById('prev-page').disabled = currentPage <= 1;
+        document.getElementById('next-page').disabled = currentPage >= totalPages;
+        document.getElementById('last-page').disabled = currentPage >= totalPages;
+        document.getElementById('go-page').disabled = totalPages <= 1;
 
-          if (result.data && result.data.length > 0) {
-            // 保存当前页面的数据
-            currentData = result.data;
-            // 渲染数据表格
-            renderZeroDayTable(result.data);
-          } else {
-            currentData = [];
-            document.getElementById('zero-day-table').innerHTML = `
-              <div class="alert alert-info">
-                <span class="alert-icon">ℹ</span> 没有找到零日攻击记录
-              </div>
-            `;
-          }
+        if (result.data && result.data.length > 0) {
+          // 保存当前页面的数据
+          currentData = result.data;
+          // 渲染数据表格
+          renderZeroDayTable(result.data);
         } else {
-          throw new Error(result.message || '加载数据失败');
+          currentData = [];
+          document.getElementById('zero-day-table').innerHTML = `
+            <div class="alert alert-info">
+              <span class="alert-icon">ℹ</span> 没有找到零日攻击记录
+            </div>
+          `;
         }
       } catch (error) {
         utils.showMessage(error.message, 'error');
@@ -528,11 +524,7 @@
         // 获取系统统计数据
         const result = await api.getStats();
 
-        if (result.status === 'success') {
-          renderStats(result);
-        } else {
-          throw new Error(result.message || '加载统计信息失败');
-        }
+        renderStats(result);
       } catch (error) {
         utils.showMessage(error.message, 'error');
         document.getElementById('stats-content').innerHTML = `

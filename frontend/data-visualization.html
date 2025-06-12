@@ -42,13 +42,22 @@
 
                 <!-- 图表展示区域 -->
                 <div class="row">
-                    <!-- 每日告警统计 -->
+                    <!-- 告警统计 -->
                     <div class="col col-6">
                         <div class="card">
                             <div class="card-header">
-                                <h2 class="card-title">每日告警统计</h2>
+                                <h2 class="card-title">告警统计</h2>
+                                <div class="chart-controls">
+                                    <label for="daily-alerts-days">数据范围：</label>
+                                    <select id="daily-alerts-days">
+                                        <option value="3">最近3天</option>
+                                        <option value="7">最近7天</option>
+                                        <option value="14">最近14天</option>
+                                        <option value="30" selected>最近30天</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="chart-container" id="daily-alerts-chart">
+                            <div class="chart-container" style="height: 400px;" id="daily-alerts-chart">
                                 <div class="loading">
                                     <div class="loading-spinner"></div>
                                     <span>加载中...</span>
@@ -62,6 +71,15 @@
                         <div class="card">
                             <div class="card-header">
                                 <h2 class="card-title">零日攻击类型分布</h2>
+                                <div class="chart-controls">
+                                    <label for="category-distribution-days">数据范围：</label>
+                                    <select id="category-distribution-days">
+                                        <option value="3">最近3天</option>
+                                        <option value="7" selected>最近7天</option>
+                                        <option value="14">最近14天</option>
+                                        <option value="30">最近30天</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="chart-container" id="category-distribution-chart">
                                 <div class="loading">
@@ -74,13 +92,22 @@
                 </div>
 
                 <div class="row">
-                    <!-- 月度趋势 -->
+                    <!-- 异常告警时间热力图 -->
                     <div class="col col-6">
                         <div class="card">
                             <div class="card-header">
-                                <h2 class="card-title">零日攻击月度趋势</h2>
+                                <h2 class="card-title">异常告警时间分布</h2>
+                                <div class="chart-controls">
+                                    <label for="time-heatmap-days">数据范围：</label>
+                                    <select id="time-heatmap-days">
+                                        <option value="3">最近3天</option>
+                                        <option value="7" selected>最近7天</option>
+                                        <option value="14">最近14天</option>
+                                        <option value="30">最近30天</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="chart-container" id="monthly-trend-chart">
+                            <div class="chart-container" id="time-heatmap-chart">
                                 <div class="loading">
                                     <div class="loading-spinner"></div>
                                     <span>加载中...</span>
@@ -94,6 +121,15 @@
                         <div class="card">
                             <div class="card-header">
                                 <h2 class="card-title">攻击源IP统计</h2>
+                                <div class="chart-controls">
+                                    <label for="ip-attack-stats-days">数据范围：</label>
+                                    <select id="ip-attack-stats-days">
+                                        <option value="3">最近3天</option>
+                                        <option value="7" selected>最近7天</option>
+                                        <option value="14">最近14天</option>
+                                        <option value="30">最近30天</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="chart-container" id="ip-attack-stats-chart">
                                 <div class="loading">
@@ -112,7 +148,6 @@
                         <div class="chart-controls">
                             <label for="alert-comparison-days">数据范围：</label>
                             <select id="alert-comparison-days">
-                                <option value="1">最近1天</option>
                                 <option value="3">最近3天</option>
                                 <option value="7">最近7天</option>
                                 <option value="14">最近14天</option>
@@ -137,7 +172,7 @@
             const charts = {
                 dailyAlerts: null,
                 categoryDistribution: null,
-                monthlyTrend: null,
+                timeHeatmap: null,
                 ipAttackStats: null,
                 alertComparison: null
             };
@@ -147,7 +182,23 @@
                 loadAllCharts();
                 checkHealth();
 
-                // 添加告警对比分析图表数据范围选择器事件监听
+                // 添加事件监听器
+                document.getElementById('daily-alerts-days').addEventListener('change', function () {
+                    loadDailyAlertsChart();
+                });
+
+                document.getElementById('category-distribution-days').addEventListener('change', function () {
+                    loadCategoryDistributionChart();
+                });
+
+                document.getElementById('time-heatmap-days').addEventListener('change', function () {
+                    loadTimeHeatmapChart();
+                });
+
+                document.getElementById('ip-attack-stats-days').addEventListener('change', function () {
+                    loadIpAttackStatsChart();
+                });
+
                 document.getElementById('alert-comparison-days').addEventListener('change', function () {
                     loadAlertComparisonChart();
                 });
@@ -182,7 +233,7 @@
             function loadAllCharts() {
                 loadDailyAlertsChart();
                 loadCategoryDistributionChart();
-                loadMonthlyTrendChart();
+                loadTimeHeatmapChart();
                 loadIpAttackStatsChart();
                 loadAlertComparisonChart();
             }
@@ -196,21 +247,27 @@
                 }
             }
 
-            // 加载每日告警统计图表
+            // 加载告警统计图表
             async function loadDailyAlertsChart() {
                 try {
-                    utils.showLoading('#daily-alerts-chart', '加载每日告警统计...');
+                    utils.showLoading('#daily-alerts-chart', '加载告警统计...');
 
-                    const result = await api.getChartData('daily_alerts');
+                    const days = document.getElementById('daily-alerts-days').value;
+                    const result = await api.getChartData('daily_alerts', { days });
 
-                    if (result.status === 'success') {
+                    // 检查是否为警告响应
+                    if (result._response?.code === 1) {
+                        document.getElementById('daily-alerts-chart').innerHTML = `
+            <div class="alert alert-warning">
+              <span class="alert-icon">⚠</span> ${result._response?.message || '暂无数据'}
+            </div>
+          `;
+                    } else {
                         const chartDom = document.getElementById('daily-alerts-chart');
                         chartDom.innerHTML = '';
 
                         // 使用柱状图类型初始化图表
-                        charts.dailyAlerts = utils.initChart('#daily-alerts-chart', 'bar', result.data);
-                    } else {
-                        throw new Error(result.message || '加载图表失败');
+                        charts.dailyAlerts = utils.initChart('#daily-alerts-chart', 'bar', result);
                     }
                 } catch (error) {
                     utils.showMessage(error.message, 'error');
@@ -227,22 +284,22 @@
                 try {
                     utils.showLoading('#category-distribution-chart', '加载攻击类型分布...');
 
-                    const result = await api.getChartData('category_distribution');
+                    const days = document.getElementById('category-distribution-days').value;
+                    const result = await api.getChartData('category_distribution', { days });
 
-                    if (result.status === 'success') {
+                    // 检查是否为警告响应
+                    if (result._response?.code === 1) {
+                        document.getElementById('category-distribution-chart').innerHTML = `
+            <div class="alert alert-warning">
+              <span class="alert-icon">⚠</span> ${result._response?.message || '暂无数据'}
+            </div>
+          `;
+                    } else {
                         const chartDom = document.getElementById('category-distribution-chart');
                         chartDom.innerHTML = '';
 
                         // 使用饼图类型初始化图表
-                        charts.categoryDistribution = utils.initChart('#category-distribution-chart', 'pie', result.data);
-                    } else if (result.status === 'warning') {
-                        document.getElementById('category-distribution-chart').innerHTML = `
-            <div class="alert alert-warning">
-              <span class="alert-icon">⚠</span> ${result.message || '暂无数据'}
-            </div>
-          `;
-                    } else {
-                        throw new Error(result.message || '加载图表失败');
+                        charts.categoryDistribution = utils.initChart('#category-distribution-chart', 'pie', result);
                     }
                 } catch (error) {
                     utils.showMessage(error.message, 'error');
@@ -254,31 +311,31 @@
                 }
             }
 
-            // 加载月度趋势图表
-            async function loadMonthlyTrendChart() {
+            // 加载异常告警时间热力图表
+            async function loadTimeHeatmapChart() {
                 try {
-                    utils.showLoading('#monthly-trend-chart', '加载月度趋势...');
+                    utils.showLoading('#time-heatmap-chart', '加载异常告警时间分布...');
 
-                    const result = await api.getChartData('monthly_trend');
+                    const days = document.getElementById('time-heatmap-days').value;
+                    const result = await api.getChartData('time_heatmap', { days });
 
-                    if (result.status === 'success') {
-                        const chartDom = document.getElementById('monthly-trend-chart');
-                        chartDom.innerHTML = '';
-
-                        // 使用折线图类型初始化图表
-                        charts.monthlyTrend = utils.initChart('#monthly-trend-chart', 'line', result.data);
-                    } else if (result.status === 'warning') {
-                        document.getElementById('monthly-trend-chart').innerHTML = `
+                    // 检查是否为警告响应
+                    if (result._response?.code === 1) {
+                        document.getElementById('time-heatmap-chart').innerHTML = `
             <div class="alert alert-warning">
-              <span class="alert-icon">⚠</span> ${result.message || '暂无数据'}
+              <span class="alert-icon">⚠</span> ${result._response?.message || '暂无数据'}
             </div>
           `;
                     } else {
-                        throw new Error(result.message || '加载图表失败');
+                        const chartDom = document.getElementById('time-heatmap-chart');
+                        chartDom.innerHTML = '';
+
+                        // 使用热力图类型初始化图表
+                        charts.timeHeatmap = utils.initChart('#time-heatmap-chart', 'heatmap', result);
                     }
                 } catch (error) {
                     utils.showMessage(error.message, 'error');
-                    document.getElementById('monthly-trend-chart').innerHTML = `
+                    document.getElementById('time-heatmap-chart').innerHTML = `
           <div class="alert alert-error">
             <span class="alert-icon">✗</span> 加载图表失败: ${error.message}
           </div>
@@ -291,9 +348,17 @@
                 try {
                     utils.showLoading('#ip-attack-stats-chart', '加载IP攻击统计...');
 
-                    const result = await api.getChartData('ip_attack_stats');
+                    const days = document.getElementById('ip-attack-stats-days').value;
+                    const result = await api.getChartData('ip_attack_stats', { days });
 
-                    if (result.status === 'success') {
+                    // 检查是否为警告响应
+                    if (result._response?.code === 1) {
+                        document.getElementById('ip-attack-stats-chart').innerHTML = `
+            <div class="alert alert-warning">
+              <span class="alert-icon">⚠</span> ${result._response?.message || '暂无数据'}
+            </div>
+          `;
+                    } else {
                         const chartDom = document.getElementById('ip-attack-stats-chart');
                         chartDom.innerHTML = '';
 
@@ -301,16 +366,8 @@
                         charts.ipAttackStats = utils.initChart(
                             '#ip-attack-stats-chart',
                             'horizontalBar',
-                            result.data
+                            result
                         );
-                    } else if (result.status === 'warning') {
-                        document.getElementById('ip-attack-stats-chart').innerHTML = `
-            <div class="alert alert-warning">
-              <span class="alert-icon">⚠</span> ${result.message || '暂无数据'}
-            </div>
-          `;
-                    } else {
-                        throw new Error(result.message || '加载图表失败');
                     }
                 } catch (error) {
                     utils.showMessage(error.message, 'error');
@@ -345,20 +402,19 @@
 
                     const result = await api.getChartData('daily_alert_comparison', { days });
 
-                    if (result.status === 'success') {
+                    // 检查是否为警告响应
+                    if (result._response?.code === 1) {
+                        chartContainer.innerHTML = `
+            <div class="alert alert-warning">
+              <span class="alert-icon">⚠</span> ${result._response?.message || '暂无数据'}
+            </div>
+          `;
+                    } else {
                         // 清空容器内容
                         chartContainer.innerHTML = '';
 
                         // 使用多线图表类型初始化图表
-                        charts.alertComparison = utils.initChart('#alert-comparison-chart', 'multiLine', result.data);
-                    } else if (result.status === 'warning') {
-                        chartContainer.innerHTML = `
-            <div class="alert alert-warning">
-              <span class="alert-icon">⚠</span> ${result.message || '暂无数据'}
-            </div>
-          `;
-                    } else {
-                        throw new Error(result.message || '加载图表失败');
+                        charts.alertComparison = utils.initChart('#alert-comparison-chart', 'multiLine', result);
                     }
                 } catch (error) {
                     utils.showMessage(error.message, 'error');

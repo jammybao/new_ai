@@ -38,9 +38,15 @@
                 
                 debugDiv.textContent = `API响应:\n${JSON.stringify(result, null, 2)}`;
                 
-                if (result.status === 'success') {
+                // 检查是否为成功响应（code: 0）或警告响应（code: 1）
+                if (result.code === 0 || result.code === 1) {
                     const chartDom = document.getElementById('chart');
                     const myChart = echarts.init(chartDom);
+                    
+                    // 如果是警告响应，显示警告信息
+                    if (result.code === 1) {
+                        debugDiv.textContent += `\n\n警告: ${result.message || '数据可能不完整'}`;
+                    }
                     
                     // 简单的散点图配置
                     const option = {

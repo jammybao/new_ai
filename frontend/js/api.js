@@ -15,11 +15,23 @@ async function request(url, options = {}) {
 
     const data = await response.json();
 
+    // 检查HTTP状态码
     if (!response.ok) {
-      throw new Error(data.message || "请求失败");
+      throw new Error(data.message || `HTTP ${response.status} 错误`);
     }
 
-    return data;
+    // 检查业务状态码
+    // code: 0=成功, 1=警告, -1=错误, -2=参数错误, -3=未找到
+    if (data.code === 0 || data.code === 1) {
+      // 成功或警告，返回 result 数据和完整响应
+      return {
+        ...data.result,
+        _response: data, // 保留完整响应，便于获取 message 等信息
+      };
+    } else {
+      // 业务错误，抛出异常
+      throw new Error(data.message || "业务处理失败");
+    }
   } catch (error) {
     console.error("API请求错误:", error);
     throw error;
