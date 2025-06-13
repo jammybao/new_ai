@@ -40,6 +40,7 @@ class ZeroDayDetector:
         self.scaler = StandardScaler()
         self.input_dim = None
         self.history = None
+        self.is_scaler_fitted = False
         
     def _build_model(self, input_dim):
         """
@@ -64,7 +65,8 @@ class ZeroDayDetector:
         decoded = tf.keras.layers.Dropout(0.2)(decoded)
         decoded = tf.keras.layers.Dense(self.encoding_dim * 4, activation='relu')(decoded)
         decoded = tf.keras.layers.Dropout(0.2)(decoded)
-        decoded = tf.keras.layers.Dense(input_dim, activation='sigmoid')(decoded)
+        # 🔧 修复：使用linear激活函数而不是sigmoid
+        decoded = tf.keras.layers.Dense(input_dim, activation='linear')(decoded)
         
         # 整个自动编码器
         autoencoder = tf.keras.models.Model(inputs, decoded)
@@ -98,9 +100,15 @@ class ZeroDayDetector:
             print("检测到稀疏输入矩阵，转换为密集矩阵")
             X = X.toarray()
         
+        # 🔧 修复：添加数据标准化
+        print("对训练数据进行标准化...")
+        X_scaled = self.scaler.fit_transform(X)
+        self.is_scaler_fitted = True
+        print(f"标准化后数据范围: [{X_scaled.min():.4f}, {X_scaled.max():.4f}]")
+        
         # 构建模型
-        print(f"构建自动编码器模型: 输入维度 {X.shape[1]}, 编码维度 {self.encoding_dim}")
-        self._build_model(X.shape[1])
+        print(f"构建自动编码器模型: 输入维度 {X_scaled.shape[1]}, 编码维度 {self.encoding_dim}")
+        self._build_model(X_scaled.shape[1])
         
         # 设置早停和模型检查点
         early_stopping = tf.keras.callbacks.EarlyStopping(
@@ -109,9 +117,9 @@ class ZeroDayDetector:
             restore_best_weights=True
         )
         
-        # 训练模型
+        # 训练模型（使用标准化后的数据）
         self.history = self.model.fit(
-            X, X,
+            X_scaled, X_scaled,  # 🔧 修复：使用标准化数据
             epochs=epochs,
             batch_size=batch_size,
             shuffle=True,
@@ -120,14 +128,22 @@ class ZeroDayDetector:
             verbose=1
         )
         
-        # 计算重构误差
-        reconstructions = self.model.predict(X)
-        train_loss = np.mean(np.power(X - reconstructions, 2), axis=1)
+        # 计算重构误差（使用标准化数据）
+        reconstructions = self.model.predict(X_scaled)
+        train_loss = np.mean(np.power(X_scaled - reconstructions, 2), axis=1)
         
         # 如果没有设置阈值，自动设置为重构误差的95%分位数
         if self.threshold is None:
             self.threshold = np.percentile(train_loss, 95)
-            print(f"自动设置异常分数阈值为: {self.threshold}")
+            print(f"自动设置异常分数阈值为: {self.threshold:.6f}")
+        
+        print(f"训练数据重建误差统计:")
+        print(f"  最小值: {train_loss.min():.6f}")
+        print(f"  25%分位数: {np.percentile(train_loss, 25):.6f}")
+        print(f"  50%分位数: {np.percentile(train_loss, 50):.6f}")
+        print(f"  75%分位数: {np.percentile(train_loss, 75):.6f}")
+        print(f"  95%分位数: {np.percentile(train_loss, 95):.6f}")
+        print(f"  最大值: {train_loss.max():.6f}")
         
         # 保存模型
         if save_path:
@@ -139,7 +155,7 @@ class ZeroDayDetector:
     
     def predict(self, X):
         """
-        预测样本的异常分数
+        🔧 修复后的预测方法：正确计算异常分数
         
         参数:
             X: 特征矩阵
@@ -150,23 +166,71 @@ class ZeroDayDetector:
         if self.model is None:
             raise ValueError("模型尚未训练")
         
+        if not self.is_scaler_fitted:
+            raise ValueError("标准化器尚未训练")
+        
         # 检查输入是否为稀疏矩阵并转换
         is_sparse = sp.issparse(X)
         if is_sparse:
             X = X.toarray()
         
-        # 重构输入并计算重构误差
-        reconstructions = self.model.predict(X)
-        loss = np.mean(np.power(X - reconstructions, 2), axis=1)
+        # 🔧 修复：使用相同的标准化
+        X_scaled = self.scaler.transform(X)
         
-        # 将误差转换为[0, 1]范围的分数，越大越异常
+        # 重构输入并计算重构误差
+        reconstructions = self.model.predict(X_scaled)
+        loss = np.mean(np.power(X_scaled - reconstructions, 2), axis=1)
+        
+        # 🔧 修复：正确的归一化逻辑
         if len(loss) > 1:
-            max_loss = max(np.max(loss), self.threshold * 2)  # 确保阈值也在范围内
-            anomaly_scores = loss / max_loss
+            min_loss = np.min(loss)
+            max_loss = np.max(loss)
+            
+            # 确保分母不为零
+            if max_loss > min_loss:
+                # 标准的min-max归一化到[0,1]
+                anomaly_scores = (loss - min_loss) / (max_loss - min_loss)
+            else:
+                # 所有值相同的情况
+                anomaly_scores = np.zeros_like(loss)
         else:
-            anomaly_scores = np.array([loss[0] / self.threshold])
+            # 单个样本的情况：与阈值比较
+            if loss[0] > self.threshold:
+                anomaly_scores = np.array([1.0])
+            else:
+                anomaly_scores = np.array([loss[0] / self.threshold])
         
         return anomaly_scores
+    
+    def predict_raw_errors(self, X):
+        """
+        返回原始重建误差（用于调试）
+        
+        参数:
+            X: 特征矩阵
+        
+        返回:
+            原始重建误差数组
+        """
+        if self.model is None:
+            raise ValueError("模型尚未训练")
+        
+        if not self.is_scaler_fitted:
+            raise ValueError("标准化器尚未训练")
+        
+        # 检查输入是否为稀疏矩阵并转换
+        is_sparse = sp.issparse(X)
+        if is_sparse:
+            X = X.toarray()
+        
+        # 使用相同的标准化
+        X_scaled = self.scaler.transform(X)
+        
+        # 重构输入并计算重构误差
+        reconstructions = self.model.predict(X_scaled)
+        loss = np.mean(np.power(X_scaled - reconstructions, 2), axis=1)
+        
+        return loss
     
     def is_zero_day(self, X, threshold=None):
         """
@@ -182,8 +246,9 @@ class ZeroDayDetector:
         if threshold is None:
             threshold = self.threshold
         
-        scores = self.predict(X)
-        return scores > threshold
+        # 使用原始重建误差与训练阈值比较
+        raw_errors = self.predict_raw_errors(X)
+        return raw_errors > threshold
     
     def encode_features(self, X):
         """
@@ -203,7 +268,12 @@ class ZeroDayDetector:
         if is_sparse:
             X = X.toarray()
         
-        return self.encoder.predict(X)
+        # 🔧 修复：使用标准化
+        if self.is_scaler_fitted:
+            X_scaled = self.scaler.transform(X)
+            return self.encoder.predict(X_scaled)
+        else:
+            return self.encoder.predict(X)
     
     def visualize_loss(self, save_path=None):
         """

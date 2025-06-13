@@ -121,24 +121,35 @@ def detect_zero_day_attacks(alerts, preprocessor, if_model, kmeans_model, detect
         kmeans_distances = 1 - kmeans_model.predict(X_dense)  # 转换为距离
         kmeans_anomalies = kmeans_model.is_anomaly(X_dense)
         
-        # 3. 使用零日检测器生成重建误差
+        # 3. 🔧 修复：使用修复后的零日检测器
+        print("\n使用修复后的零日检测器...")
         encoded_features = detector.encode_features(X)
         print(f"编码特征维度: {encoded_features.shape}")
-        reconstruction_errors = detector.predict(X)
+        reconstruction_scores = detector.predict(X)  # 修复后的归一化分数
+        raw_errors = detector.predict_raw_errors(X)  # 原始重建误差
+        zero_day_anomalies = detector.is_zero_day(X)  # 基于阈值的判定
+        
+        print(f"[DEBUG] 零日检测器结果:")
+        print(f"  原始重建误差范围: [{raw_errors.min():.6f}, {raw_errors.max():.6f}]")
+        print(f"  归一化分数范围: [{reconstruction_scores.min():.6f}, {reconstruction_scores.max():.6f}]")
+        print(f"  零日候选数量: {zero_day_anomalies.sum()}/{len(zero_day_anomalies)}")
         
         # 4. 结合所有检测结果
-        # 基线模型检测的异常
-        baseline_anomalies = (if_anomalies == -1) | (kmeans_anomalies == 1)
+        # 🔧 修复：基线模型检测的异常判定逻辑
+        # is_anomaly返回布尔值，True表示异常，False表示正常
+        baseline_anomalies = if_anomalies | kmeans_anomalies
         
-        # 零日攻击的阈值 - 使用重建误差的分布确定
-        threshold = np.percentile(reconstruction_errors, 95)  # 使用95%分位数作为阈值
-        zero_day_anomalies = reconstruction_errors > threshold
+        print(f"[DEBUG] 基线模型结果:")
+        print(f"  隔离森林异常数量: {if_anomalies.sum()}/{len(if_anomalies)}")
+        print(f"  K均值异常数量: {kmeans_anomalies.sum()}/{len(kmeans_anomalies)}")
+        print(f"  基线异常数量: {baseline_anomalies.sum()}/{len(baseline_anomalies)}")
         
         # 5. 结合结果到原始数据
         results = alerts.copy()
         results['isolation_forest_score'] = -if_scores  # 将分数取反，使得高分表示异常
         results['kmeans_distance'] = kmeans_distances
-        results['reconstruction_error'] = reconstruction_errors
+        results['reconstruction_error'] = raw_errors
+        results['reconstruction_score_normalized'] = reconstruction_scores
         results['is_baseline_anomaly'] = baseline_anomalies
         results['is_zero_day_candidate'] = zero_day_anomalies
         
@@ -154,13 +165,15 @@ def detect_zero_day_attacks(alerts, preprocessor, if_model, kmeans_model, detect
         # 条件: 同时被基线模型和零日检测器判定为异常
         results['is_zero_day'] = results['is_baseline_anomaly'] & results['is_zero_day_candidate']
         
-        # 7. 计算零日攻击分数 (0-1之间，越高越可能是零日攻击)
-        min_error = reconstruction_errors.min()
-        max_error = reconstruction_errors.max()
-        if max_error > min_error:
-            results['zero_day_score'] = (results['reconstruction_error'] - min_error) / (max_error - min_error)
-        else:
-            results['zero_day_score'] = 0
+        # 7. 🔧 修复：计算更合理的零日攻击分数
+        # 基于多个因素的综合分数
+        base_score = reconstruction_scores  # 基于重建误差的归一化分数
+        
+        # 基线模型分数的贡献（已归一化）
+        baseline_contribution = (results['isolation_forest_score'] + results['kmeans_distance']) / 2
+        
+        # 综合分数：重建误差权重更高
+        results['zero_day_score'] = 0.7 * base_score + 0.3 * baseline_contribution
         
         # 8. 新增规则：所有来自外网IP的攻击都被认为是零日攻击
         if 'src_ip_is_internal' in results.columns:
@@ -171,13 +184,13 @@ def detect_zero_day_attacks(alerts, preprocessor, if_model, kmeans_model, detect
             # 将所有外网IP攻击标记为零日攻击
             results['is_zero_day'] = results['is_zero_day'] | external_ip_attacks
             
-            # 对于外网IP攻击，如果零日分数较低，则提升分数
-            external_mask = external_ip_attacks & (results['zero_day_score'] < 0.8)
+            # 对于外网IP攻击，提升分数但不过度
+            external_mask = external_ip_attacks & (results['zero_day_score'] < 0.7)
             if external_mask.sum() > 0:
                 print(f"提升 {external_mask.sum()} 个外网IP攻击的零日分数")
                 results.loc[external_mask, 'zero_day_score'] = np.maximum(
                     results.loc[external_mask, 'zero_day_score'], 
-                    0.8  # 外网IP攻击的最低分数设为0.8
+                    0.7  # 外网IP攻击的最低分数设为0.7
                 )
         else:
             print("警告: 无法获取IP内外网信息，无法应用外网IP规则")
